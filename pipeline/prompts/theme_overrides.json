@@ -1,0 +1,8 @@
+{
+  "John": {
+    "3": { "theme_id": "gospel_light", "style": "realistic" }
+  },
+  "Psalms": {
+    "*": { "theme_id": "wisdom_lyrical", "style": "clipart" }
+  }
+}

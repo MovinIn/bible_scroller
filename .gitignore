@@ -1,0 +1,15 @@
+.env
+scroller/server/.env
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+pipeline/output/
+pipeline/data/
+*.pem
+*_private.key
+prequests_private.key
+scroller/deploy/secrets/
+scroller/server/static/web/
+scroller/client/build/
+.cursor/commit-plan.md
+.cursor/deploy-status.md

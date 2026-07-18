@@ -1,0 +1,22 @@
+bool shouldCacheVerseText(String text) {
+  final trimmed = text.trim();
+  if (trimmed.isEmpty) {
+    return false;
+  }
+  return !trimmed.contains('BIBLE_BRAIN_API_KEY');
+}
+
+bool isPlayableAudioUrl(String url) {
+  final trimmed = url.trim();
+  if (trimmed.isEmpty) {
+    return false;
+  }
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return false;
+  }
+  if (uri.host == 'example.com' || uri.host.endsWith('.example.com')) {
+    return false;
+  }
+  return true;
+}

@@ -1,0 +1,43 @@
+# Local development: Postgres + API with hot-reload-friendly build.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bible_scroller
+      POSTGRES_PASSWORD: bible_scroller
+      POSTGRES_DB: bible_scroller
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bible_scroller -d bible_scroller"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./server
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://bible_scroller:bible_scroller@postgres:5432/bible_scroller
+      MEDIA_BASE_URL: http://127.0.0.1:8000
+      PIPELINE_MOUNT_ROOT: /pipeline/output
+      PIPELINE_IMAGES_ROOTS: /pipeline/output/test/images;/pipeline/output/prod;/pipeline/output
+      CHAPTER_CACHE_ROOT: /pipeline/data/chapters
+      # 0 = seed every verse group from the manifest (not only the first 30).
+      SEED_LIMIT: "0"
+      BIBLE_BRAIN_API_KEY: ${BIBLE_BRAIN_API_KEY:-}
+      GOOGLE_CLIENT_IDS: ${GOOGLE_CLIENT_IDS:-315895045315-54809ltm3mnp79qurdl7512c55mvbveo.apps.googleusercontent.com,315895045315-5rtkbs5sve6c3jac9c8hh9m2i58gvrq7.apps.googleusercontent.com,315895045315-e90fn22s1q3dghmc6u7neqae3668lqnc.apps.googleusercontent.com}
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me}
+    volumes:
+      - ../pipeline/output:/pipeline/output:ro
+      - ../pipeline/data/chapters:/pipeline/data/chapters:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

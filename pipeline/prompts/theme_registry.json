@@ -1,0 +1,79 @@
+{
+  "themes": {
+    "creation_cosmic": {
+      "description": "awe, dawn light, cosmic scale, divine craftsmanship",
+      "default_style": "realistic",
+      "mood_file": "themes/creation_cosmic.txt"
+    },
+    "garden_peace": {
+      "description": "lush, intimate, Edenic calm, verdant abundance",
+      "default_style": "clipart",
+      "mood_file": "themes/garden_peace.txt"
+    },
+    "wilderness_journey": {
+      "description": "dust, horizon, pilgrimage, barren paths",
+      "default_style": "realistic",
+      "mood_file": "themes/wilderness_journey.txt"
+    },
+    "exodus_deliverance": {
+      "description": "dramatic escape, sea, fire, liberation",
+      "default_style": "realistic",
+      "mood_file": "themes/exodus_deliverance.txt"
+    },
+    "law_covenant": {
+      "description": "stone, solemn, structured, covenant weight",
+      "default_style": "realistic",
+      "mood_file": "themes/law_covenant.txt"
+    },
+    "temple_worship": {
+      "description": "gold, incense, reverence, sacred space",
+      "default_style": "realistic",
+      "mood_file": "themes/temple_worship.txt"
+    },
+    "prophetic_storm": {
+      "description": "wind, warning, dark skies, urgent message",
+      "default_style": "realistic",
+      "mood_file": "themes/prophetic_storm.txt"
+    },
+    "wisdom_lyrical": {
+      "description": "reflective, nature motifs, soft contemplation",
+      "default_style": "clipart",
+      "mood_file": "themes/wisdom_lyrical.txt"
+    },
+    "gospel_light": {
+      "description": "warm, hopeful, human faces, divine encounter",
+      "default_style": "realistic",
+      "mood_file": "themes/gospel_light.txt"
+    },
+    "parable_storybook": {
+      "description": "simple scene, teaching moment, everyday metaphor",
+      "default_style": "clipart",
+      "mood_file": "themes/parable_storybook.txt"
+    },
+    "passion_somber": {
+      "description": "muted, weight, shadow, suffering",
+      "default_style": "realistic",
+      "mood_file": "themes/passion_somber.txt"
+    },
+    "resurrection_dawn": {
+      "description": "breaking light, empty tomb, triumph over death",
+      "default_style": "realistic",
+      "mood_file": "themes/resurrection_dawn.txt"
+    },
+    "apocalyptic_dramatic": {
+      "description": "symbolic, intense contrast, visionary imagery",
+      "default_style": "realistic",
+      "mood_file": "themes/apocalyptic_dramatic.txt"
+    },
+    "epistle_community": {
+      "description": "gathering, letters, fellowship, instruction",
+      "default_style": "clipart",
+      "mood_file": "themes/epistle_community.txt"
+    }
+  },
+  "styles": {
+    "realistic": "meta_prompt_realistic.txt",
+    "clipart": "meta_prompt_clipart.txt"
+  },
+  "default_theme_id": "gospel_light"
+}

@@ -1,0 +1,46 @@
+name: bible_scroller
+description: "A Bible scroller app"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  provider: ^6.1.2
+  shared_preferences: ^2.3.3
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  cached_network_image: ^3.4.1
+  just_audio: ^0.9.42
+  uuid: ^4.5.1
+  google_sign_in: ^7.2.0
+  flutter_secure_storage: ^10.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: assets/branding/app_icon.png
+  adaptive_icon_background: "#192c46"
+  adaptive_icon_foreground: assets/branding/app_icon_foreground.png
+  # Foreground asset already includes ~18% safe-zone padding.
+  adaptive_icon_foreground_inset: 0
+  web:
+    generate: true
+    image_path: assets/branding/app_icon.png
+    background_color: "#192c46"
+    theme_color: "#192c46"
+
+flutter:
+  uses-material-design: true
