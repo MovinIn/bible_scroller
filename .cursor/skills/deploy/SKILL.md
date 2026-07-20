@@ -36,6 +36,7 @@ Deploy:
 - [ ] 5. Deploy plan written
 - [ ] 6. Deploy executed (after approval)
 - [ ] 7. Smoke tests
+- [ ] 8. Cloudflare: purge Flutter static + verify edge HIT (§1b)
 ```
 
 ## Phase A — Plan only (default)
@@ -58,7 +59,9 @@ When the user invokes `/deploy` (or equivalent) **without** clear execute words:
 3. docker buildx build --platform linux/arm64 -t movinin/apps:bscroller_backend --push ./scroller/server
 4. ssh opc@192.9.142.147 → docker compose pull/up bscroller → alembic upgrade head
 5. Smoke: /health, /reels?limit=1, /
+6. Cloudflare purge Flutter static + verify wasm HIT (DEPLOY.md §1b; needs CLOUDFLARE_API_TOKEN in env — never paste token in chat)
 **Fallback:** If local Docker Desktop unavailable, use VM build (§2b in DEPLOY.md).
+**One-time:** Cache Rules + Browser Cache TTL — see DEPLOY.md §1b if wasm is DYNAMIC.
 ```
 
 ## Approval gates
@@ -91,6 +94,7 @@ Only after clear deploy approval. Follow [reference.md](reference.md) in order:
 3. **Image build + push** (`linux/arm64` → `movinin/apps:bscroller_backend`).
 4. **VM roll-out** over SSH: `docker compose pull bscroller` (or skip if VM-built), `up -d`, `alembic upgrade head`.
 5. **Smoke tests** from reference.md; report pass/fail URLs.
+6. **Cloudflare edge (required after web static changes):** purge + verify per [reference.md](reference.md) §5 and [`DEPLOY.md` §1b](../../../scroller/deploy/DEPLOY.md). Skip only if user said no CDN step and web bundle was unchanged.
 
 ### Shell notes (Windows)
 
