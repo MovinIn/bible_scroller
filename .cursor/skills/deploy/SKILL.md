@@ -20,7 +20,7 @@ Orchestrates **git commits** then **production deploy** for Bible Scroller
   (same secret-scan defaults / opt-out phrases).
 - Deploy command details: [reference.md](reference.md) and
   [`scroller/deploy/DEPLOY.md`](../../../scroller/deploy/DEPLOY.md).
-- **Never** commit TLS keys, SSH keys, `~/env`, or API keys.
+- **Never** commit TLS keys, SSH keys, `~/.env`, or API keys.
 - **Never** `git push` or deploy without explicit user approval (see gates).
 
 ## Progress checklist
@@ -94,7 +94,10 @@ Only after clear deploy approval. Follow [reference.md](reference.md) in order:
 3. **Image build + push** (`linux/arm64` → `movinin/apps:bscroller_backend`).
 4. **VM roll-out** over SSH: `docker compose pull bscroller` (or skip if VM-built), `up -d`, `alembic upgrade head`.
 5. **Smoke tests** from reference.md; report pass/fail URLs.
-6. **Cloudflare edge (required after web static changes):** purge + verify per [reference.md](reference.md) §5 and [`DEPLOY.md` §1b](../../../scroller/deploy/DEPLOY.md). Skip only if user said no CDN step and web bundle was unchanged.
+6. **Cloudflare edge (required after web static changes):** purge + verify per [reference.md](reference.md) §5 and [`DEPLOY.md` §1b](../../../scroller/deploy/DEPLOY.md).
+   - Require `CLOUDFLARE_API_TOKEN` in the **local shell env** (never paste into chat). If unset after a web-bundle change → **fail the deploy** (do not report success).
+   - Skip CDN only when the user explicitly opted out (`skip-cdn`, `no-cdn`, or `cdn:false`) **or** the web bundle was unchanged this deploy.
+   - After purge, verify must pass (`wasm` follow-up `HIT`).
 
 ### Shell notes (Windows)
 
@@ -107,6 +110,7 @@ Only after clear deploy approval. Follow [reference.md](reference.md) in order:
 - Commit fails → stop; do not deploy; keep commit plan.
 - Docker build/push fails → try documenting §2b VM build; ask before uploading tar.
 - Smoke test fails → report logs (`docker logs bscroller`); do not claim success.
+- Web bundle changed and `CLOUDFLARE_API_TOKEN` missing (without CDN opt-out) → fail deploy; tell user to set the token in the local shell and re-run purge/verify.
 
 ## Phase D — Done
 
@@ -122,3 +126,4 @@ Report:
 - **commit-files** secret-scan opt-out phrases still apply.
 - **`deploy:false`**, **`skip-deploy`**, **`no-deploy`**: run commit-files only.
 - **`commit:false`**, **`skip-commit`**, **`no-commit`**: skip git commits; deploy plan/execute only.
+- **`skip-cdn`**, **`no-cdn`**, **`cdn:false`**: skip Cloudflare purge/verify after web deploy (report as skipped; do not claim CDN success).

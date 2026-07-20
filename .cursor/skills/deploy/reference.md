@@ -87,10 +87,14 @@ Expect: health `{"status":"ok"}`, reels JSON with items, HTML index for Flutter 
 
 CanvasKit `.wasm` is edge-cached (~31 days). After shipping a new Flutter web bundle, purge so visitors are not stuck on stale renderer files. Full detail: [`DEPLOY.md` §1b](../../../scroller/deploy/DEPLOY.md).
 
-Requires `CLOUDFLARE_API_TOKEN` in the **local shell env** (Zone Cache Purge). Never ask the user to paste the token into chat.
+**Required** when the web bundle changed this deploy. `CLOUDFLARE_API_TOKEN` must already be in the **local shell env** (Zone Cache Purge). Never ask the user to paste the token into chat. If the token is missing → **fail the deploy** unless the user opted out with `skip-cdn` / `no-cdn` / `cdn:false`.
 
 ```powershell
-# Token already set out-of-band: $env:CLOUDFLARE_API_TOKEN = '...'
+# Token already set out-of-band (do not paste into chat):
+# $env:CLOUDFLARE_API_TOKEN = '...'
+if ([string]::IsNullOrWhiteSpace($env:CLOUDFLARE_API_TOKEN)) {
+  throw 'CLOUDFLARE_API_TOKEN missing after web deploy — set it locally or pass skip-cdn'
+}
 powershell -File scroller/deploy/purge-cloudflare-flutter-static.ps1
 powershell -File scroller/deploy/verify-cloudflare-cache.ps1
 ```
@@ -101,5 +105,5 @@ One-time (if wasm is `DYNAMIC`): run `apply-cloudflare-cache-rules.ps1` per §1b
 
 ## Security
 
-- Do not print or commit contents of `~/env`, certs, or SSH private keys.
+- Do not print or commit contents of `~/.env`, certs, or SSH private keys.
 - Do not set `ENVIRONMENT=production` without SMTP configured (API refuses to start).
