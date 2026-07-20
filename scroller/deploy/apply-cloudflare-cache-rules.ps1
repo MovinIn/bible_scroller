@@ -104,7 +104,8 @@ $kept = @(
         Where-Object { $_.description -notlike 'bscroller:*' } |
         ForEach-Object { ConvertTo-WritableCacheRule $_ }
 )
-$merged = @($kept) + @($desiredRules | ForEach-Object { ConvertTo-WritableCacheRule $_ })
+# Put bscroller rules first so they win first-match evaluation on the shared zone.
+$merged = @($desiredRules | ForEach-Object { ConvertTo-WritableCacheRule $_ }) + @($kept)
 
 Write-Host "Updating cache ruleset $rulesetId ($($merged.Count) rules) ..."
 Invoke-CfApi -Method PUT -Uri "$api/zones/$zoneId/rulesets/$rulesetId" -Headers $headers -Body @{

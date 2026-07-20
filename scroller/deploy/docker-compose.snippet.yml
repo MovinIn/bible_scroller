@@ -1,5 +1,5 @@
 # Append this service block to ~/docker-compose.yml on the production VM (192.9.142.147).
-# Requires: BSCROLLER_DATABASE_URL and BIBLE_BRAIN_API_KEY in ~/env
+# Requires: BSCROLLER_DATABASE_URL and BIBLE_BRAIN_API_KEY in ~/.env
 
   bscroller:
     image: docker.io/movinin/apps:bscroller_backend

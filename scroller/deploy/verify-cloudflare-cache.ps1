@@ -35,13 +35,14 @@ Write-Host "wasm warm(GET) CF-Cache-Status: $warmStatus"
 $secondStatus = ''
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     Start-Sleep -Seconds 1
-    $second = Get-ResponseHeaders $wasmUrl -Method Head
+    # Use GET (same as warm) — HEAD can diverge from GET cache status on some edges.
+    $second = Get-ResponseHeaders $wasmUrl -Method Get
     $secondStatus = Get-HeaderValue $second 'CF-Cache-Status'
     Write-Host "wasm follow-up #$attempt CF-Cache-Status: $secondStatus"
     if ($secondStatus -ieq 'HIT') { break }
 }
 
-$js = Get-ResponseHeaders $jsUrl -Method Head
+$js = Get-ResponseHeaders $jsUrl -Method Get
 $jsStatus = Get-HeaderValue $js 'CF-Cache-Status'
 $jsCache = Get-HeaderValue $js 'Cache-Control'
 Write-Host "main.dart.js CF-Cache-Status: $jsStatus"

@@ -18,7 +18,7 @@ Production follows the same pattern as `prequests`, `cevents`, and `bverse` on `
 - Docker Hub push access for `movinin/apps:bscroller_backend`
 - **Bible Brain API key** from https://4.dbt.io/api_key/request
 
-**Security:** Never commit TLS keys, SSH keys, or `~/env` to git.
+**Security:** Never commit TLS keys, SSH keys, or `~/.env` to git.
 
 ---
 
@@ -116,7 +116,8 @@ The apply script:
    - `/canvaskit/*` — Eligible for cache, Edge TTL override 31 days
    - `/assets/*` and `/icons/*` — same
 3. Only treats entrypoint **HTTP 404** as “missing ruleset”; other API errors surface
-4. Re-PUTs kept non-`bscroller:` rules with writable fields only (strips `version` / `last_updated`)
+4. Re-PUTs kept non-`bscroller:` rules with writable fields (`expression`, `action`, `enabled`, `id`, `description`, `ref`, `logging`, `action_parameters`) and strips read-only fields (`version` / `last_updated`). Residual risk: other writable fields Cloudflare adds later are not preserved.
+5. Places `bscroller:*` rules **first** in the ruleset so they win first-match evaluation against sibling zone rules
 
 ### Option B — dashboard
 
@@ -166,7 +167,7 @@ Or manually:
 sudo -u postgres psql -c "CREATE DATABASE bscroller OWNER db_user;"
 ```
 
-Add to `~/env`:
+Add to `~/.env` (Compose loads this when you run `docker compose` from `opc`'s home):
 
 ```env
 BSCROLLER_DATABASE_URL=postgresql://db_user:...@172.18.0.1:5432/bscroller?sslmode=disable
@@ -174,9 +175,9 @@ BIBLE_BRAIN_API_KEY=your_bible_brain_key
 MEDIA_BASE_URL=https://bscroller.navedu.uk
 GOOGLE_CLIENT_IDS=315895045315-54809ltm3mnp79qurdl7512c55mvbveo.apps.googleusercontent.com,315895045315-5rtkbs5sve6c3jac9c8hh9m2i58gvrq7.apps.googleusercontent.com,315895045315-e90fn22s1q3dghmc6u7neqae3668lqnc.apps.googleusercontent.com
 JWT_SECRET=your-32-plus-char-secret
+```
 
 Ensure `~/docker-compose.yml` passes `GOOGLE_CLIENT_IDS` and `JWT_SECRET` into the `bscroller` service (see `docker-compose.snippet.yml`). Do **not** set `ENVIRONMENT=production` until `SMTP_HOST` is configured — the API refuses to start otherwise.
-```
 
 Run migrations after first deploy:
 
@@ -286,7 +287,7 @@ flutter build apk --release --dart-define=API_BASE_URL=https://bscroller.navedu.
 ## Manual checklist (your step)
 
 1. Obtain `BIBLE_BRAIN_API_KEY` at https://4.dbt.io/api_key/request
-2. Add `BSCROLLER_DATABASE_URL`, `BIBLE_BRAIN_API_KEY`, `MEDIA_BASE_URL` to `~/env`
+2. Add `BSCROLLER_DATABASE_URL`, `BIBLE_BRAIN_API_KEY`, `MEDIA_BASE_URL` to `~/.env`
 3. Create Postgres DB `bscroller` (or run `~/vm-setup-postgres.sh`)
 4. Apply Cloudflare Cache Rules + Browser Cache TTL (`§1b`)
 5. Build/push ARM64 image (`§1` or `§2b`)

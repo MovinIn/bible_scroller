@@ -45,6 +45,12 @@ function ConvertTo-WritableCacheRule {
     if ($Rule.PSObject.Properties.Name -contains 'description' -and $Rule.description) {
         $out.description = [string]$Rule.description
     }
+    if ($Rule.PSObject.Properties.Name -contains 'ref' -and $Rule.ref) {
+        $out.ref = [string]$Rule.ref
+    }
+    if ($Rule.PSObject.Properties.Name -contains 'logging' -and $null -ne $Rule.logging) {
+        $out.logging = $Rule.logging
+    }
     if ($Rule.PSObject.Properties.Name -contains 'action_parameters' -and $null -ne $Rule.action_parameters) {
         $out.action_parameters = $Rule.action_parameters
     }
