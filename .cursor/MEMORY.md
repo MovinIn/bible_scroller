@@ -14,19 +14,22 @@
 - **TDD:** Prefer outcome-named tests (`[outcome] when [condition]`) for non-trivial features.
 - **Web cold start:** Slow load was OCI origin egress for CanvasKit `.wasm` (`CF-Cache-Status: DYNAMIC`), not the ~2 GB reel library. Keep CanvasKit for production until skwasm is validated.
 - **Cloudflare cache:** Zone Cache Rules required for `/canvaskit/*` (and `/assets/*`, `/icons/*`) on `bscroller.navedu.uk` + `www`. Browser Cache TTL=0 is **zone-wide** for `navedu.uk`. Purge Flutter static after web deploys (31-day edge TTL).
-- **CF deploy scripts:** Shared helpers in `cloudflare-cache-common.ps1` — normalize null rules, force JSON arrays (PS 5.1), parse 404 from messages, shared `Invoke-CfApi`. Verify warms with GET. Run `cloudflare-cache-common.tests.ps1` after script edits.
+- **CF deploy scripts:** Shared helpers in `cloudflare-cache-common.ps1` — normalize null rules, force JSON arrays (PS 5.1), parse 404 from messages, shared `Invoke-CfApi`, preserve `ref`/`logging` on foreign rules, bscroller rules first. Verify warms/follow-ups with GET. Run `cloudflare-cache-common.tests.ps1` after script edits.
+- **VM secrets:** Production Compose reads `~/.env` on `opc@192.9.142.147` (not `~/env`). `BIBLE_BRAIN_API_KEY` lives there — never commit.
+- **Deploy CDN gate:** After web-bundle changes, missing `CLOUDFLARE_API_TOKEN` fails deploy unless user said `skip-cdn` / `no-cdn` / `cdn:false`.
 
 ## Active context
 
-### 2026-07-18 — Cloudflare cold-start + script review fixes
+### 2026-07-20 — CDN review fixes + Bible Brain on VM
 
-- Live apex cache OK (`HIT`); `www.bscroller.navedu.uk` has no DNS (www in scripts is forward-looking).
-- Code-review fixes landed in deploy scripts (null rules, JSON arrays, 404 parse, GET warm, deduped API, DEPLOY §1b polish).
-- **Uncommitted** on `main`: `DEPLOY.md`, five deploy scripts, `.cursor/` memory/session logs.
-- Next: commit deploy tooling when ready; optional skwasm later; fresh token only if re-applying rules.
+- CDN deploy tooling committed/pushed on `main` (`25c9bcf`+).
+- Code-review fixes: `~/env`→`~/.env` docs, env fence, purge-gate, preserve `ref`/`logging`, bscroller rules first, verify GET follow-up, hashtable unwrap test.
+- Production `bscroller` healthy; Bible Brain key set in VM `~/.env`.
+- Next: optional skwasm; ensure local shell has `CLOUDFLARE_API_TOKEN` before web deploys.
 
 ## Recent completions
 
+- 2026-07-20: Deployed web + Bible Brain key to VM; CDN review-fix plan implemented.
 - 2026-07-18: CDN script review fixes (Normalize-CfRulesetRules, ConvertTo-CfApiJsonBody, Get-CfHttpStatusCode, verify GET warm, Invoke-CfApi common).
 - 2026-07-18: Diagnosed cold start; Cloudflare Cache Rules + Browser Cache TTL; deploy apply/verify/purge scripts + §1b.
 - 2026-07-16: Google + email/password auth, 6-digit verify, login-gated likes/comments (TDD).
@@ -36,3 +39,4 @@
 
 - 2026-07-16 auth implementation notes — session log `2026-07-16-2127-auth-accounts.md`.
 - 2026-07-18 initial cold-start session — `2026-07-18-1926-cloudflare-cold-start.md`.
+- 2026-07-18 CDN script review — `2026-07-18-2050-cdn-script-review.md`.
