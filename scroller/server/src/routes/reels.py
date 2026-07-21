@@ -189,7 +189,7 @@ def bible_verse(
     chapter: int = Query(..., ge=1),
     start_verse: int = Query(..., ge=1),
     end_verse: int = Query(..., ge=1),
-    version_id: str = Query(default="niv"),
+    version_id: str = Query(default="esv"),
 ) -> BibleVerseOut:
     if end_verse < start_verse:
         raise HTTPException(status_code=400, detail="end_verse must be >= start_verse")
@@ -222,7 +222,7 @@ def bible_verse(
 def bible_audio(
     book: str = Query(...),
     chapter: int = Query(..., ge=1),
-    version_id: str = Query(default="niv"),
+    version_id: str = Query(default="esv"),
 ) -> BibleAudioOut:
     try:
         audio_url = get_bible_client().get_chapter_audio_url(

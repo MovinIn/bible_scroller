@@ -4,7 +4,7 @@ def test_returns_bible_versions_when_versions_endpoint_is_called(client) -> None
     assert response.status_code == 200
     versions = response.json()
     assert len(versions) >= 1
-    assert versions[0]["version_id"] == "niv"
+    assert versions[0]["version_id"] == "esv"
 
 
 def test_returns_verse_text_when_bible_verse_is_requested(client) -> None:
@@ -15,7 +15,7 @@ def test_returns_verse_text_when_bible_verse_is_requested(client) -> None:
             "chapter": 3,
             "start_verse": 16,
             "end_verse": 16,
-            "version_id": "niv",
+            "version_id": "esv",
         },
     )
 
