@@ -65,4 +65,20 @@ void main() {
 
     expect(cached, 'In the beginning God created');
   });
+
+  test('returns false for discovery mode when preference was never saved', () async {
+    final storage = StorageService();
+    await storage.init(hivePath: tempDir.path);
+
+    expect(await storage.readDiscoveryMode(), isFalse);
+  });
+
+  test('returns saved discovery mode when preference was previously stored', () async {
+    final storage = StorageService();
+    await storage.init(hivePath: tempDir.path);
+
+    await storage.saveDiscoveryMode(true);
+
+    expect(await storage.readDiscoveryMode(), isTrue);
+  });
 }

@@ -76,7 +76,12 @@ class _TrackingApi extends ApiClient {
   }
 
   @override
-  Future<BibleVerse> fetchVerse({required Reel reel, required String versionId}) async {
+  Future<BibleVerse> fetchVerse({
+    required Reel reel,
+    required String versionId,
+    int? startVerse,
+    int? endVerse,
+  }) async {
     await verseReady.future;
     return BibleVerse(
       reference: reel.reference,
@@ -255,7 +260,12 @@ class _CountingVerseApi extends ApiClient {
   Future<List<BibleVersion>> fetchVersions() => _inner.fetchVersions();
 
   @override
-  Future<BibleVerse> fetchVerse({required Reel reel, required String versionId}) async {
+  Future<BibleVerse> fetchVerse({
+    required Reel reel,
+    required String versionId,
+    int? startVerse,
+    int? endVerse,
+  }) async {
     onFetch();
     return _inner.fetchVerse(reel: reel, versionId: versionId);
   }

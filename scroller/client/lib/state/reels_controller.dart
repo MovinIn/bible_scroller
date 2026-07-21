@@ -4,30 +4,35 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../audio/voice_audio_player.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/position_cookie.dart';
 import '../services/storage_service.dart';
 import '../utils/startup_timing.dart';
+import '../utils/verse_audio_timing.dart';
 import '../utils/verse_cache_policy.dart';
+import '../utils/voiceover_presentation.dart';
 import '../utils/voiceover_tap_action.dart';
 
 class ReelsController extends ChangeNotifier {
   ReelsController({
     required ApiClient api,
     required StorageService storage,
-    AudioPlayer? audioPlayer,
+    VoiceAudioPlayer? audioPlayer,
   })  : _api = api,
         _storage = storage,
         _audioPlayerOverride = audioPlayer;
 
   final ApiClient _api;
   final StorageService _storage;
-  final AudioPlayer? _audioPlayerOverride;
-  AudioPlayer? _lazyAudioPlayer;
+  final VoiceAudioPlayer? _audioPlayerOverride;
+  VoiceAudioPlayer? _lazyAudioPlayer;
 
   final List<Reel> _reels = [];
   final Map<int, String> _verseTextByReelId = {};
+  /// Per-verse text: key = "$reelId:$verse".
+  final Map<String, String> _verseTextByReelVerse = {};
   final Map<int, List<Comment>> _commentsByReelId = {};
 
   bool loading = true;
@@ -37,16 +42,24 @@ class ReelsController extends ChangeNotifier {
   String translationVersion = 'esv';
   bool autoplayVoice = true;
   bool isMuted = false;
+  bool discoveryMode = false;
+  bool defineModeEnabled = false;
   List<BibleVersion> versions = const [];
   List<String> books = const [];
   int? _nextCursor;
   int? _prevCursor;
   int _currentIndex = 0;
   int? _voiceoverReelId;
+  VoiceoverPresentation voiceoverPresentation = VoiceoverPresentation.sectionIdle;
+  int? activeVerseNumber;
+  List<BibleAudioVerseTiming> _clipVerses = const [];
+  StreamSubscription<Duration>? _positionSub;
+  bool _clipFinishing = false;
   Future<void>? _booksLoadFuture;
   Future<void>? _versionsLoadFuture;
   Future<void>? _visibleReelWork;
   int _visibleWorkGeneration = 0;
+  final Map<int, WordStudy> _wordStudyByReelId = {};
 
   List<Reel> get reels => List.unmodifiable(_reels);
   int get currentIndex => _currentIndex;
@@ -54,11 +67,43 @@ class ReelsController extends ChangeNotifier {
   bool get canLoadNext => _nextCursor != null;
   bool get canLoadPrevious => _prevCursor != null;
 
-  AudioPlayer get _audioPlayer {
+  bool isVoiceoverFor(Reel reel) => _voiceoverReelId == reel.id;
+
+  /// Test-only: seed voiceover presentation without playing audio.
+  @visibleForTesting
+  void debugSeedVoiceover({
+    required int reelId,
+    required VoiceoverPresentation presentation,
+    int? activeVerse,
+    String? sectionText,
+    Map<int, String>? perVerseText,
+  }) {
+    _voiceoverReelId = reelId;
+    voiceoverPresentation = presentation;
+    activeVerseNumber = activeVerse;
+    if (sectionText != null) {
+      _verseTextByReelId[reelId] = sectionText;
+    }
+    perVerseText?.forEach((verse, text) {
+      _verseTextByReelVerse[_verseKey(reelId, verse)] = text;
+    });
+    notifyListeners();
+  }
+
+  /// Test-only: replace in-memory feed items.
+  @visibleForTesting
+  void debugSeedFeed(List<Reel> items) {
+    _reels
+      ..clear()
+      ..addAll(items);
+    notifyListeners();
+  }
+
+  VoiceAudioPlayer get _audioPlayer {
     if (_audioPlayerOverride != null) {
       return _audioPlayerOverride!;
     }
-    return _lazyAudioPlayer ??= AudioPlayer();
+    return _lazyAudioPlayer ??= JustAudioVoicePlayer();
   }
 
   Future<void> initialize() async {
@@ -66,6 +111,7 @@ class ReelsController extends ChangeNotifier {
       translationVersion = await _storage.readTranslationVersion();
       autoplayVoice = await _storage.readAutoplayVoice();
       isMuted = await _storage.readVoiceMuted();
+      discoveryMode = await _storage.readDiscoveryMode();
     });
     await StartupTiming.track('init.refreshFeed', refreshFeed);
   }
@@ -143,12 +189,39 @@ class ReelsController extends ChangeNotifier {
   /// Jump the feed to the first reel of [book]. Returns page index 0 on
   /// success, or null when the book has no reels (feed left unchanged).
   Future<int?> jumpToBook(String book) async {
-    final ReelFeed feed;
     try {
-      feed = await _api.fetchReels(limit: 10, book: book);
+      await _exitDiscoveryModeIfNeeded();
+      return await _replaceFeedWith(
+        () => _api.fetchReels(limit: 10, book: book),
+      );
     } catch (_) {
       return null;
     }
+  }
+
+  /// Jump the feed to [reelId] (a verse section). Returns page index 0 on
+  /// success, or null when no reels start at that id (feed left unchanged).
+  Future<int?> jumpToSection(int reelId) async {
+    try {
+      await _exitDiscoveryModeIfNeeded();
+      return await _replaceFeedWith(
+        () => _api.fetchReels(limit: 10, fromId: reelId),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _exitDiscoveryModeIfNeeded() async {
+    if (!discoveryMode) {
+      return;
+    }
+    discoveryMode = false;
+    await _storage.saveDiscoveryMode(false);
+  }
+
+  Future<int?> _replaceFeedWith(Future<ReelFeed> Function() fetch) async {
+    final feed = await fetch();
     if (feed.items.isEmpty) {
       return null;
     }
@@ -163,26 +236,44 @@ class ReelsController extends ChangeNotifier {
     return 0;
   }
 
+  Future<List<int>> fetchChapters(String book) => _api.fetchChapters(book);
+
+  Future<List<VerseSection>> fetchSections({
+    required String book,
+    required int chapter,
+  }) {
+    return _api.fetchSections(book: book, chapter: chapter);
+  }
+
   Future<void> refreshFeed() async {
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      final resumeId = readLastReelIdFromCookie();
-      var feed = await StartupTiming.track(
-        'feed.fetchReels',
-        () => _api.fetchReels(limit: 10, fromId: resumeId),
-      );
-      if (feed.items.isEmpty && resumeId != null) {
-        clearLastReelCookie();
-        feed = await _api.fetchReels(limit: 10);
+      final ReelFeed feed;
+      if (discoveryMode) {
+        feed = await StartupTiming.track(
+          'feed.fetchDiscoveryReels',
+          () => _api.fetchDiscoveryReels(limit: 10),
+        );
+      } else {
+        final resumeId = readLastReelIdFromCookie();
+        var sequential = await StartupTiming.track(
+          'feed.fetchReels',
+          () => _api.fetchReels(limit: 10, fromId: resumeId),
+        );
+        if (sequential.items.isEmpty && resumeId != null) {
+          clearLastReelCookie();
+          sequential = await _api.fetchReels(limit: 10);
+        }
+        feed = sequential;
       }
       _reels
         ..clear()
         ..addAll(feed.items);
       _nextCursor = feed.nextCursor;
-      _prevCursor = feed.prevCursor;
+      _prevCursor = discoveryMode ? null : feed.prevCursor;
       loading = false;
       notifyListeners();
       if (_reels.isNotEmpty) {
@@ -193,6 +284,16 @@ class ReelsController extends ChangeNotifier {
       error = err.toString();
       notifyListeners();
     }
+  }
+
+  Future<void> setDiscoveryMode(bool enabled) async {
+    if (discoveryMode == enabled) {
+      return;
+    }
+    discoveryMode = enabled;
+    await _storage.saveDiscoveryMode(enabled);
+    notifyListeners();
+    await refreshFeed();
   }
 
   Future<void> _scheduleOnReelVisible(int index) {
@@ -219,12 +320,19 @@ class ReelsController extends ChangeNotifier {
     if (generation != _visibleWorkGeneration) {
       return;
     }
+    // Always stop prior clip when the visible reel changes (even if autoplay is off).
+    await stopVoiceover();
+    if (generation != _visibleWorkGeneration) {
+      return;
+    }
     await StartupTiming.track('reel.loadMoreIfNeeded', () => loadMoreIfNeeded(index));
     if (generation != _visibleWorkGeneration) {
       return;
     }
     if (index < _reels.length) {
-      writeLastReelCookie(_reels[index].id);
+      if (!discoveryMode) {
+        writeLastReelCookie(_reels[index].id);
+      }
     }
     if (!autoplayVoice || index >= _reels.length) {
       return;
@@ -232,6 +340,12 @@ class ReelsController extends ChangeNotifier {
     final reel = _reels[index];
     if (!_verseTextByReelId.containsKey(reel.id)) {
       await StartupTiming.track('reel.ensureVerseText', () => _ensureVerseText(reel));
+    }
+    if (generation != _visibleWorkGeneration) {
+      return;
+    }
+    if (defineModeEnabled) {
+      await _ensureWordStudy(reel);
     }
     if (generation != _visibleWorkGeneration) {
       return;
@@ -261,6 +375,29 @@ class ReelsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setDefineMode(bool enabled) async {
+    defineModeEnabled = enabled;
+    notifyListeners();
+    if (enabled && currentReel != null) {
+      await _ensureWordStudy(currentReel!);
+    }
+  }
+
+  WordStudy? wordStudyFor(Reel reel) => _wordStudyByReelId[reel.id];
+
+  Future<void> _ensureWordStudy(Reel reel, {bool force = false}) async {
+    if (!force && _wordStudyByReelId.containsKey(reel.id)) {
+      return;
+    }
+    try {
+      final study = await _api.fetchWordStudy(reel: reel);
+      _wordStudyByReelId[reel.id] = study;
+      notifyListeners();
+    } catch (_) {
+      // Define mode stays on; overlay can show empty / keep prior cache.
+    }
+  }
+
   Future<void> _applyAudioVolume() async {
     try {
       await _audioPlayer.setVolume(isMuted ? 0.0 : 1.0);
@@ -274,10 +411,18 @@ class ReelsController extends ChangeNotifier {
     if (index >= _reels.length - 2 && _nextCursor != null && !loadingMore) {
       loadingMore = true;
       notifyListeners();
+      final useDiscovery = discoveryMode;
+      final excludeIds = _reels.map((reel) => reel.id).toList();
+      final cursor = _nextCursor;
       try {
-        final feed = await _api.fetchReels(cursor: _nextCursor, limit: 10);
+        final feed = useDiscovery
+            ? await _api.fetchDiscoveryReels(limit: 10, excludeIds: excludeIds)
+            : await _api.fetchReels(cursor: cursor, limit: 10);
         _reels.addAll(feed.items);
         _nextCursor = feed.nextCursor;
+        if (useDiscovery) {
+          _prevCursor = null;
+        }
       } catch (_) {
         // Keep already-loaded reels scrollable if pagination fails.
       } finally {
@@ -299,14 +444,22 @@ class ReelsController extends ChangeNotifier {
 
     loadingMore = true;
     notifyListeners();
+    final useDiscovery = discoveryMode;
+    final excludeIds = _reels.map((reel) => reel.id).toList();
+    final cursor = _nextCursor;
     try {
-      final feed = await _api.fetchReels(cursor: _nextCursor, limit: 10);
+      final feed = useDiscovery
+          ? await _api.fetchDiscoveryReels(limit: 10, excludeIds: excludeIds)
+          : await _api.fetchReels(cursor: cursor, limit: 10);
       if (feed.items.isEmpty) {
         _nextCursor = null;
         return false;
       }
       _reels.addAll(feed.items);
       _nextCursor = feed.nextCursor;
+      if (useDiscovery) {
+        _prevCursor = null;
+      }
       return true;
     } catch (_) {
       return false;
@@ -319,7 +472,7 @@ class ReelsController extends ChangeNotifier {
   /// Prepends earlier reels when the user scrolls up from the first loaded reel.
   /// Returns how many reels were inserted (caller adjusts [PageController]).
   Future<int> prependPreviousPage() async {
-    if (_prevCursor == null || loadingPrevious) {
+    if (discoveryMode || _prevCursor == null || loadingPrevious) {
       return 0;
     }
 
@@ -346,6 +499,7 @@ class ReelsController extends ChangeNotifier {
     translationVersion = versionId;
     await _storage.saveTranslationVersion(versionId);
     _verseTextByReelId.clear();
+    _verseTextByReelVerse.clear();
     notifyListeners();
     if (currentReel != null) {
       await _ensureVerseText(currentReel!, force: true);
@@ -355,6 +509,24 @@ class ReelsController extends ChangeNotifier {
   String verseTextFor(Reel reel) {
     return _verseTextByReelId[reel.id] ?? 'Loading verse…';
   }
+
+  String? activeVerseTextFor(Reel reel) {
+    final verse = activeVerseNumber;
+    if (verse == null) {
+      return null;
+    }
+    return _verseTextByReelVerse[_verseKey(reel.id, verse)];
+  }
+
+  String displayVerseTextFor(Reel reel) {
+    if (voiceoverPresentation == VoiceoverPresentation.playingActiveVerse &&
+        _voiceoverReelId == reel.id) {
+      return activeVerseTextFor(reel) ?? verseTextFor(reel);
+    }
+    return verseTextFor(reel);
+  }
+
+  String _verseKey(int reelId, int verse) => '$reelId:$verse';
 
   Future<void> _ensureVerseText(Reel reel, {bool force = false}) async {
     if (!force) {
@@ -386,6 +558,44 @@ class ReelsController extends ChangeNotifier {
     } catch (_) {
       _verseTextByReelId[reel.id] = 'Could not load ${reel.reference}';
       notifyListeners();
+    }
+  }
+
+  Future<void> _ensureSingleVerseText(Reel reel, int verse) async {
+    final key = _verseKey(reel.id, verse);
+    if (_verseTextByReelVerse.containsKey(key)) {
+      return;
+    }
+    if (reel.startVerse == reel.endVerse &&
+        _verseTextByReelId.containsKey(reel.id)) {
+      _verseTextByReelVerse[key] = _verseTextByReelId[reel.id]!;
+      return;
+    }
+    try {
+      final item = await _api.fetchVerse(
+        reel: reel,
+        versionId: translationVersion,
+        startVerse: verse,
+        endVerse: verse,
+      );
+      _verseTextByReelVerse[key] = item.text;
+      notifyListeners();
+    } catch (_) {
+      // Leave missing; UI falls back to full section text.
+    }
+  }
+
+  Future<void> _ensurePerVerseTexts(Reel reel, {bool force = false}) async {
+    final futures = <Future<void>>[];
+    for (var verse = reel.startVerse; verse <= reel.endVerse; verse++) {
+      final key = _verseKey(reel.id, verse);
+      if (!force && _verseTextByReelVerse.containsKey(key)) {
+        continue;
+      }
+      futures.add(_ensureSingleVerseText(reel, verse));
+    }
+    if (futures.isNotEmpty) {
+      await Future.wait(futures);
     }
   }
 
@@ -458,16 +668,94 @@ class ReelsController extends ChangeNotifier {
   Future<void> playVoiceover(Reel reel) async {
     await stopVoiceover();
     final audio = await _api.fetchAudio(reel: reel, versionId: translationVersion);
-    if (!isPlayableAudioUrl(audio.audioUrl)) {
+    if (!isPlayableAudioUrl(audio.audioUrl) || audio.verses.isEmpty) {
+      voiceoverPresentation = VoiceoverPresentation.sectionIdle;
+      activeVerseNumber = null;
+      notifyListeners();
       throw StateError('Audio unavailable for ${reel.reference}');
     }
-    await _audioPlayer.setUrl(audio.audioUrl);
+
+    final startMs = sectionStartMs(audio.verses);
+    if (startMs == null) {
+      throw StateError('Audio unavailable for ${reel.reference}');
+    }
+
+    await _ensureVerseText(reel);
+    _clipVerses = List<BibleAudioVerseTiming>.from(audio.verses);
+    await _ensurePerVerseTexts(reel);
+    final duration = await _audioPlayer.setUrl(audio.audioUrl);
+    _clipVerses = clampOpenEndedVerseTimings(
+      _clipVerses,
+      duration?.inMilliseconds,
+    );
+    await _audioPlayer.seek(Duration(milliseconds: startMs));
     _voiceoverReelId = reel.id;
+    activeVerseNumber = _clipVerses.first.verse;
+    voiceoverPresentation = VoiceoverPresentation.playingActiveVerse;
+    _clipFinishing = false;
     await _applyAudioVolume();
+    _listenToPosition();
     await _audioPlayer.play();
+    notifyListeners();
+  }
+
+  void _listenToPosition() {
+    _positionSub?.cancel();
+    _positionSub = _audioPlayer.positionStream.listen((position) {
+      if (_voiceoverReelId == null || _clipVerses.isEmpty || _clipFinishing) {
+        return;
+      }
+      final ms = position.inMilliseconds;
+      if (isVerseClipFinished(_clipVerses, ms)) {
+        _clipFinishing = true;
+        unawaited(_finishVerseClip());
+        return;
+      }
+      final nextActive = activeVerseAtPositionMs(_clipVerses, ms);
+      if (nextActive != null && nextActive != activeVerseNumber) {
+        activeVerseNumber = nextActive;
+        final playing = _reelById(_voiceoverReelId);
+        if (playing != null) {
+          unawaited(_ensureSingleVerseText(playing, nextActive));
+        }
+        notifyListeners();
+      }
+    });
+  }
+
+  Reel? _reelById(int? id) {
+    if (id == null) {
+      return null;
+    }
+    for (final reel in _reels) {
+      if (reel.id == id) {
+        return reel;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _finishVerseClip() async {
+    _positionSub?.cancel();
+    _positionSub = null;
+    if (_audioPlayerOverride != null || _lazyAudioPlayer != null) {
+      await _audioPlayer.pause();
+    }
+    voiceoverPresentation = VoiceoverPresentation.sectionReveal;
+    activeVerseNumber = null;
+    notifyListeners();
   }
 
   Future<void> stopVoiceover() async {
+    _positionSub?.cancel();
+    _positionSub = null;
+    _clipFinishing = false;
+    _clipVerses = const [];
+    activeVerseNumber = null;
+    if (voiceoverPresentation == VoiceoverPresentation.playingActiveVerse ||
+        voiceoverPresentation == VoiceoverPresentation.sectionReveal) {
+      voiceoverPresentation = VoiceoverPresentation.sectionIdle;
+    }
     if (_audioPlayerOverride == null && _lazyAudioPlayer == null) {
       _voiceoverReelId = null;
       return;
@@ -478,10 +766,13 @@ class ReelsController extends ChangeNotifier {
 
   /// Peek intended tap action without mutating playback (for optimistic UI).
   VoiceoverTapAction peekVoiceoverTapAction(Reel reel) {
+    final clipDone = voiceoverPresentation == VoiceoverPresentation.sectionReveal &&
+        _voiceoverReelId == reel.id;
     return resolveVoiceoverTapAction(
       isCurrentReelLoaded: _voiceoverReelId == reel.id,
       playing: _audioPlayer.playing,
-      completed: _audioPlayer.processingState == ProcessingState.completed,
+      completed: clipDone ||
+          _audioPlayer.processingState == ProcessingState.completed,
     );
   }
 
@@ -493,10 +784,13 @@ class ReelsController extends ChangeNotifier {
       case VoiceoverTapAction.pause:
         await _audioPlayer.pause();
       case VoiceoverTapAction.resume:
+        if (voiceoverPresentation != VoiceoverPresentation.playingActiveVerse) {
+          voiceoverPresentation = VoiceoverPresentation.playingActiveVerse;
+          notifyListeners();
+        }
         await _audioPlayer.play();
       case VoiceoverTapAction.replay:
-        await _audioPlayer.seek(Duration.zero);
-        await _audioPlayer.play();
+        await playVoiceover(reel);
       case VoiceoverTapAction.start:
         await playVoiceover(reel);
     }
@@ -505,6 +799,7 @@ class ReelsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _positionSub?.cancel();
     _audioPlayerOverride?.dispose();
     _lazyAudioPlayer?.dispose();
     super.dispose();

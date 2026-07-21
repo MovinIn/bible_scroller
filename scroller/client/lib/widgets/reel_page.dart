@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../state/reels_controller.dart';
+import '../utils/voiceover_presentation.dart';
 import 'auth_gate.dart';
 import 'playback_splash_overlay.dart';
 import 'reel_action_bar.dart';
+import 'word_definition_sheet.dart';
 
 class ReelPage extends StatelessWidget {
   const ReelPage({
@@ -16,6 +18,7 @@ class ReelPage extends StatelessWidget {
     required this.onCommentsTap,
     required this.onTranslationTap,
     required this.onVoiceTap,
+    this.onDefineTap,
     this.onVoiceLongPress,
     this.onBodyTap,
     this.onBookTap,
@@ -27,6 +30,7 @@ class ReelPage extends StatelessWidget {
   final VoidCallback onCommentsTap;
   final VoidCallback onTranslationTap;
   final VoidCallback onVoiceTap;
+  final VoidCallback? onDefineTap;
   final VoidCallback? onVoiceLongPress;
   final VoidCallback? onBodyTap;
   final VoidCallback? onBookTap;
@@ -69,42 +73,112 @@ class ReelPage extends StatelessWidget {
         ),
         SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 88, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Text(
-                    reel.reference,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
+            padding: const EdgeInsets.fromLTRB(16, 56, 88, 24),
+            child: ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) {
+                final defineMode = controller.defineModeEnabled;
+                final study = defineMode ? controller.wordStudyFor(reel) : null;
+                final forThisReel = controller.isVoiceoverFor(reel);
+                final presentation = forThisReel
+                    ? controller.voiceoverPresentation
+                    : VoiceoverPresentation.sectionIdle;
+                final isActivePlay =
+                    presentation == VoiceoverPresentation.playingActiveVerse;
+                final text = isActivePlay
+                    ? (controller.activeVerseTextFor(reel) ??
+                        controller.verseTextFor(reel))
+                    : controller.verseTextFor(reel);
+                final fadeIn =
+                    presentation == VoiceoverPresentation.sectionReveal;
+
+                return Center(
+                  child: TweenAnimationBuilder<double>(
+                    key: ValueKey(
+                      'verse-copy-${defineMode}-${presentation.name}-${controller.activeVerseNumber ?? 0}',
+                    ),
+                    tween: Tween<double>(
+                      begin: fadeIn ? 0 : 1,
+                      end: 1,
+                    ),
+                    duration: Duration(milliseconds: fadeIn ? 450 : 0),
+                    builder: (context, opacity, child) {
+                      return Opacity(opacity: opacity, child: child);
+                    },
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: 520,
+                        maxHeight: 420,
+                      ),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.center,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 520),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: Colors.white24),
+                                ),
+                                child: Text(
+                                  reel.reference,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              if (defineMode && study != null)
+                                _WordStudyGroups(
+                                  study: study,
+                                  textStyle: textTheme.headlineSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontSize: 28,
+                                    height: 1.35,
+                                  ),
+                                )
+                              else
+                                Text(
+                                  text,
+                                  textAlign: TextAlign.center,
+                                  style: textTheme.headlineSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontSize: 28,
+                                    height: 1.35,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  controller.verseTextFor(reel),
-                  style: textTheme.headlineSmall?.copyWith(color: Colors.white),
-                  maxLines: 8,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                );
+              },
             ),
           ),
         ),
-        Positioned.fill(
-          child: _ReelBodyTapTarget(onTap: onBodyTap),
+        ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) {
+            if (controller.defineModeEnabled) {
+              return const SizedBox.shrink();
+            }
+            return Positioned.fill(
+              child: _ReelBodyTapTarget(onTap: onBodyTap),
+            );
+          },
         ),
-        // Above the tap target so the flash is never covered; IgnorePointer
-        // inside the overlay keeps taps reaching the body target.
         if (playbackSplashController != null)
           PlaybackSplashOverlay(controller: playbackSplashController!),
         Positioned(
@@ -113,21 +187,31 @@ class ReelPage extends StatelessWidget {
           bottom: 0,
           child: SafeArea(
             child: Center(
-              child: ReelActionBar(
-                reel: reel,
-                translationVersion: controller.translationVersion,
-                isMuted: controller.isMuted,
-                onLike: () async {
-                  final ok = await ensureLoggedIn(context);
-                  if (!ok || !context.mounted) {
-                    return;
-                  }
-                  await controller.toggleReelLike(reel);
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) {
+                  return ReelActionBar(
+                    reel: reel,
+                    translationVersion: controller.translationVersion,
+                    isMuted: controller.isMuted,
+                    defineModeEnabled: controller.defineModeEnabled,
+                    onLike: () async {
+                      final ok = await ensureLoggedIn(context);
+                      if (!ok || !context.mounted) {
+                        return;
+                      }
+                      await controller.toggleReelLike(reel);
+                    },
+                    onCommentsTap: onCommentsTap,
+                    onTranslationTap: onTranslationTap,
+                    onDefineTap: onDefineTap ??
+                        () {
+                          controller.setDefineMode(!controller.defineModeEnabled);
+                        },
+                    onVoiceTap: onVoiceTap,
+                    onVoiceLongPress: onVoiceLongPress,
+                  );
                 },
-                onCommentsTap: onCommentsTap,
-                onTranslationTap: onTranslationTap,
-                onVoiceTap: onVoiceTap,
-                onVoiceLongPress: onVoiceLongPress,
               ),
             ),
           ),
@@ -174,6 +258,67 @@ class ReelPage extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WordStudyGroups extends StatelessWidget {
+  const _WordStudyGroups({
+    required this.study,
+    required this.textStyle,
+  });
+
+  final WordStudy study;
+  final TextStyle? textStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = study.allGroups;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 6,
+          runSpacing: 8,
+          children: [
+            for (final group in groups)
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => WordDefinitionSheet.show(context, group),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Colors.amberAccent.withValues(alpha: 0.85),
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    child: Text(
+                      group.phrase,
+                      textAlign: TextAlign.center,
+                      style: textStyle,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'BSB',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 1.2,
           ),
         ),
       ],

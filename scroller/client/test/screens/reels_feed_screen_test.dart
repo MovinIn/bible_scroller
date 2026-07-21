@@ -46,7 +46,37 @@ class _FakeApi extends ApiClient {
   }
 
   @override
+  Future<ReelFeed> fetchDiscoveryReels({
+    int limit = 10,
+    List<int> excludeIds = const [],
+  }) async {
+    return ReelFeed(
+      items: reels.reversed.toList(),
+      nextCursor: null,
+      prevCursor: null,
+    );
+  }
+
+  @override
   Future<List<String>> fetchBooks() async => const ['Genesis', 'John', 'Acts'];
+
+  @override
+  Future<List<int>> fetchChapters(String book) async => const [1, 2, 3];
+
+  @override
+  Future<List<VerseSection>> fetchSections({
+    required String book,
+    required int chapter,
+  }) async {
+    return const [
+      VerseSection(
+        id: 1,
+        startVerse: 16,
+        endVerse: 16,
+        reference: 'John 3:16',
+      ),
+    ];
+  }
 
   @override
   Future<List<BibleVersion>> fetchVersions() async {
@@ -59,6 +89,8 @@ class _FakeApi extends ApiClient {
   Future<BibleVerse> fetchVerse({
     required Reel reel,
     required String versionId,
+    int? startVerse,
+    int? endVerse,
   }) async {
     return BibleVerse(
       reference: reel.reference,
@@ -109,6 +141,16 @@ class _FakeStorage extends StorageService {
 
   @override
   Future<void> saveVoiceMuted(bool muted) async {}
+
+  bool discoveryMode = false;
+
+  @override
+  Future<bool> readDiscoveryMode({bool fallback = false}) async => discoveryMode;
+
+  @override
+  Future<void> saveDiscoveryMode(bool enabled) async {
+    discoveryMode = enabled;
+  }
 
   @override
   Future<void> rememberLikedReel(int reelId) async {}
@@ -352,5 +394,26 @@ void main() {
     expect(find.text('Choose book'), findsOneWidget);
     expect(find.text('Genesis'), findsOneWidget);
     expect(find.text('Acts'), findsOneWidget);
+  });
+
+  testWidgets('shows outlined explore icon when discovery mode is off',
+      (tester) async {
+    await pumpFeed(tester);
+
+    expect(find.byKey(const Key('discovery_mode_toggle')), findsOneWidget);
+    expect(find.byIcon(Icons.explore_outlined), findsOneWidget);
+  });
+
+  testWidgets('enables discovery mode when top-right toggle is tapped',
+      (tester) async {
+    await pumpFeed(tester);
+    expect(controller.discoveryMode, isFalse);
+
+    await tester.tap(find.byKey(const Key('discovery_mode_toggle')));
+    await settle(tester);
+
+    expect(controller.discoveryMode, isTrue);
+    expect(find.byIcon(Icons.explore), findsOneWidget);
+    expect(controller.reels.first.id, 2);
   });
 }

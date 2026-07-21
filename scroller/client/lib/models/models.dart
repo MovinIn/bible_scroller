@@ -89,6 +89,33 @@ class ReelFeed {
   }
 }
 
+class VerseSection {
+  const VerseSection({
+    required this.id,
+    required this.startVerse,
+    required this.endVerse,
+    required this.reference,
+  });
+
+  final int id;
+  final int startVerse;
+  final int endVerse;
+  final String reference;
+
+  /// Display label for picker grids: `16` or `1–4`.
+  String get label =>
+      startVerse == endVerse ? '$startVerse' : '$startVerse–$endVerse';
+
+  factory VerseSection.fromJson(Map<String, dynamic> json) {
+    return VerseSection(
+      id: json['id'] as int,
+      startVerse: json['start_verse'] as int,
+      endVerse: json['end_verse'] as int,
+      reference: json['reference'] as String,
+    );
+  }
+}
+
 class Comment {
   const Comment({
     required this.id,
@@ -172,22 +199,147 @@ class BibleVerse {
   }
 }
 
+class WordGroup {
+  const WordGroup({
+    required this.phrase,
+    required this.strongs,
+    this.lemma = '',
+    this.definition = '',
+  });
+
+  final String phrase;
+  final String strongs;
+  final String lemma;
+  final String definition;
+
+  factory WordGroup.fromJson(Map<String, dynamic> json) {
+    return WordGroup(
+      phrase: json['phrase'] as String,
+      strongs: json['strongs'] as String,
+      lemma: (json['lemma'] as String?) ?? '',
+      definition: (json['definition'] as String?) ?? '',
+    );
+  }
+}
+
+class WordStudyVerse {
+  const WordStudyVerse({
+    required this.verse,
+    required this.groups,
+  });
+
+  final int verse;
+  final List<WordGroup> groups;
+
+  factory WordStudyVerse.fromJson(Map<String, dynamic> json) {
+    final raw = json['groups'];
+    final groups = raw is List
+        ? raw
+            .whereType<Map<String, dynamic>>()
+            .map(WordGroup.fromJson)
+            .toList()
+        : const <WordGroup>[];
+    return WordStudyVerse(
+      verse: json['verse'] as int,
+      groups: groups,
+    );
+  }
+}
+
+class WordStudy {
+  const WordStudy({
+    required this.reference,
+    required this.versionId,
+    required this.verses,
+  });
+
+  final String reference;
+  final String versionId;
+  final List<WordStudyVerse> verses;
+
+  List<WordGroup> get allGroups => [
+        for (final verse in verses) ...verse.groups,
+      ];
+
+  factory WordStudy.fromJson(Map<String, dynamic> json) {
+    final raw = json['verses'];
+    final verses = raw is List
+        ? raw
+            .whereType<Map<String, dynamic>>()
+            .map(WordStudyVerse.fromJson)
+            .toList()
+        : const <WordStudyVerse>[];
+    return WordStudy(
+      reference: json['reference'] as String,
+      versionId: json['version_id'] as String,
+      verses: verses,
+    );
+  }
+}
+
+class BibleAudioVerseTiming {
+  const BibleAudioVerseTiming({
+    required this.verse,
+    required this.startMs,
+    required this.endMs,
+  });
+
+  final int verse;
+  final int startMs;
+  final int endMs;
+
+  factory BibleAudioVerseTiming.fromJson(Map<String, dynamic> json) {
+    return BibleAudioVerseTiming(
+      verse: json['verse'] as int,
+      startMs: json['start_ms'] as int,
+      endMs: json['end_ms'] as int,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is BibleAudioVerseTiming &&
+        other.verse == verse &&
+        other.startMs == startMs &&
+        other.endMs == endMs;
+  }
+
+  @override
+  int get hashCode => Object.hash(verse, startMs, endMs);
+}
+
 class BibleAudio {
   const BibleAudio({
     required this.reference,
     required this.versionId,
     required this.audioUrl,
+    this.startVerse = 1,
+    this.endVerse = 1,
+    this.verses = const [],
   });
 
   final String reference;
   final String versionId;
   final String audioUrl;
+  final int startVerse;
+  final int endVerse;
+  final List<BibleAudioVerseTiming> verses;
 
   factory BibleAudio.fromJson(Map<String, dynamic> json) {
+    final rawVerses = json['verses'];
+    final verses = rawVerses is List
+        ? rawVerses
+            .whereType<Map<String, dynamic>>()
+            .map(BibleAudioVerseTiming.fromJson)
+            .toList()
+        : const <BibleAudioVerseTiming>[];
     return BibleAudio(
       reference: json['reference'] as String,
       versionId: json['version_id'] as String,
       audioUrl: json['audio_url'] as String,
+      startVerse: (json['start_verse'] as int?) ?? 1,
+      endVerse: (json['end_verse'] as int?) ?? 1,
+      verses: verses,
     );
   }
 }

@@ -202,29 +202,34 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
     }
   }
 
-  Future<void> _openBookPicker(ReelsController controller, Reel reel) async {
+  Future<void> _openLocationPicker(ReelsController controller, Reel reel) async {
     await controller.ensureBooksLoaded();
     if (!mounted) {
       return;
     }
     final books = controller.books.isNotEmpty ? controller.books : [reel.book];
-    final selected = await showBookPickerSheet(
+    final selected = await showLocationPickerSheet(
       context,
       books: books,
       currentBook: reel.book,
+      currentChapter: reel.chapter,
+      currentStartVerse: reel.startVerse,
+      loadChapters: controller.fetchChapters,
+      loadSections: (book, chapter) =>
+          controller.fetchSections(book: book, chapter: chapter),
     );
-    if (selected == null || selected == reel.book || !mounted) {
+    if (selected == null || selected.reelId == reel.id || !mounted) {
       return;
     }
 
-    final index = await controller.jumpToBook(selected);
+    final index = await controller.jumpToSection(selected.reelId);
     if (!mounted) {
       return;
     }
     if (index == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('No reels for $selected')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open that section')),
+      );
       return;
     }
     if (_pageController.hasClients) {
@@ -276,62 +281,109 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
 
         final itemCount = controller.reels.length;
         return Scaffold(
-          body: Listener(
-            onPointerSignal: (event) => _handlePointerSignal(event, itemCount),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onVerticalDragStart: _handleVerticalDragStart,
-              onVerticalDragUpdate: _handleVerticalDragUpdate,
-              onVerticalDragEnd: (details) =>
-                  _handleVerticalDragEnd(details, itemCount),
-              child: PageView.builder(
-                controller: _pageController,
-                scrollDirection: Axis.vertical,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: itemCount,
-                onPageChanged: (index) => controller.onReelVisible(index),
-                itemBuilder: (context, index) {
-                  final reel = controller.reels[index];
-                  return ReelPage(
-                    reel: reel,
-                    controller: controller,
-                    playbackSplashController: _splashFor(reel),
-                    onCommentsTap: () => _openComments(reel),
-                    onTranslationTap: () => _openTranslationPicker(controller),
-                    onVoiceTap: () => controller.toggleMute(),
-                    onBookTap: () => _openBookPicker(controller, reel),
-                    onBodyTap: () async {
-                      // Flash before awaiting play so failures still show splash.
-                      final intended = controller.peekVoiceoverTapAction(reel);
-                      _flashPlaybackSplash(
-                        reel,
-                        playbackSplashIconFor(intended),
+          body: Stack(
+            children: [
+              Listener(
+                onPointerSignal: (event) =>
+                    _handlePointerSignal(event, itemCount),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onVerticalDragStart: _handleVerticalDragStart,
+                  onVerticalDragUpdate: _handleVerticalDragUpdate,
+                  onVerticalDragEnd: (details) =>
+                      _handleVerticalDragEnd(details, itemCount),
+                  child: PageView.builder(
+                    controller: _pageController,
+                    scrollDirection: Axis.vertical,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: itemCount,
+                    onPageChanged: (index) => controller.onReelVisible(index),
+                    itemBuilder: (context, index) {
+                      final reel = controller.reels[index];
+                      return ReelPage(
+                        reel: reel,
+                        controller: controller,
+                        playbackSplashController: _splashFor(reel),
+                        onCommentsTap: () => _openComments(reel),
+                        onTranslationTap: () =>
+                            _openTranslationPicker(controller),
+                        onDefineTap: () => controller.setDefineMode(
+                          !controller.defineModeEnabled,
+                        ),
+                        onVoiceTap: () => controller.toggleMute(),
+                        onBookTap: () => _openLocationPicker(controller, reel),
+                        onBodyTap: () async {
+                          // Flash before awaiting play so failures still show splash.
+                          final intended =
+                              controller.peekVoiceoverTapAction(reel);
+                          _flashPlaybackSplash(
+                            reel,
+                            playbackSplashIconFor(intended),
+                          );
+                          try {
+                            await controller.toggleVoiceoverPlayback(reel);
+                          } catch (_) {
+                            // Audio may be unavailable (bad URL / HLS / missing key).
+                          }
+                        },
+                        onVoiceLongPress: () async {
+                          final messenger = ScaffoldMessenger.of(context);
+                          await controller.setAutoplayVoice(
+                            !controller.autoplayVoice,
+                          );
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                controller.autoplayVoice
+                                    ? 'Autoplay voice enabled'
+                                    : 'Autoplay voice disabled',
+                              ),
+                            ),
+                          );
+                        },
                       );
-                      try {
-                        await controller.toggleVoiceoverPlayback(reel);
-                      } catch (_) {
-                        // Audio may be unavailable (bad URL / HLS / missing key).
-                      }
                     },
-                    onVoiceLongPress: () async {
+                  ),
+                ),
+              ),
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: IconButton(
+                    key: const Key('discovery_mode_toggle'),
+                    tooltip: controller.discoveryMode
+                        ? 'Discovery mode on'
+                        : 'Discovery mode off',
+                    icon: Icon(
+                      controller.discoveryMode
+                          ? Icons.explore
+                          : Icons.explore_outlined,
+                      color: Colors.white,
+                    ),
+                    onPressed: () async {
                       final messenger = ScaffoldMessenger.of(context);
-                      await controller.setAutoplayVoice(
-                        !controller.autoplayVoice,
-                      );
+                      final enabling = !controller.discoveryMode;
+                      await controller.setDiscoveryMode(enabling);
+                      if (!mounted) {
+                        return;
+                      }
+                      if (_pageController.hasClients) {
+                        _pageController.jumpToPage(0);
+                      }
                       messenger.showSnackBar(
                         SnackBar(
                           content: Text(
-                            controller.autoplayVoice
-                                ? 'Autoplay voice enabled'
-                                : 'Autoplay voice disabled',
+                            enabling
+                                ? 'Discovery mode enabled'
+                                : 'Discovery mode disabled',
                           ),
                         ),
                       );
                     },
-                  );
-                },
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         );
       },

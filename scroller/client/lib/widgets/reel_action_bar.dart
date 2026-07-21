@@ -8,9 +8,11 @@ class ReelActionBar extends StatelessWidget {
     required this.reel,
     required this.translationVersion,
     required this.isMuted,
+    required this.defineModeEnabled,
     required this.onLike,
     required this.onCommentsTap,
     required this.onTranslationTap,
+    required this.onDefineTap,
     required this.onVoiceTap,
     this.onVoiceLongPress,
   });
@@ -18,9 +20,11 @@ class ReelActionBar extends StatelessWidget {
   final Reel reel;
   final String translationVersion;
   final bool isMuted;
+  final bool defineModeEnabled;
   final VoidCallback onLike;
   final VoidCallback onCommentsTap;
   final VoidCallback onTranslationTap;
+  final VoidCallback onDefineTap;
   final VoidCallback onVoiceTap;
   final VoidCallback? onVoiceLongPress;
 
@@ -46,6 +50,13 @@ class ReelActionBar extends StatelessWidget {
           icon: Icons.translate,
           label: translationVersion.toUpperCase(),
           onTap: onTranslationTap,
+        ),
+        const SizedBox(height: 18),
+        _ActionButton(
+          icon: defineModeEnabled ? Icons.menu_book : Icons.menu_book_outlined,
+          label: defineModeEnabled ? 'BSB' : 'Define',
+          color: defineModeEnabled ? Colors.amberAccent : Colors.white,
+          onTap: onDefineTap,
         ),
         const SizedBox(height: 18),
         _ActionButton(

@@ -75,6 +75,22 @@ class ApiClient {
     return ReelFeed.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<ReelFeed> fetchDiscoveryReels({
+    int limit = 10,
+    List<int> excludeIds = const [],
+  }) async {
+    final query = <String, String>{'limit': '$limit'};
+    if (excludeIds.isNotEmpty) {
+      query['exclude'] = excludeIds.join(',');
+    }
+    final uri = Uri.parse('$_baseUrl/reels/discovery').replace(
+      queryParameters: query,
+    );
+    final response = await _client.get(uri, headers: _headers);
+    _ensureSuccess(response);
+    return ReelFeed.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
   Future<List<String>> fetchBooks() async {
     final response = await _client.get(
       Uri.parse('$_baseUrl/reels/books'),
@@ -83,6 +99,34 @@ class ApiClient {
     _ensureSuccess(response);
     final items = jsonDecode(response.body) as List<dynamic>;
     return items.map((item) => item as String).toList();
+  }
+
+  Future<List<int>> fetchChapters(String book) async {
+    final uri = Uri.parse('$_baseUrl/reels/chapters').replace(
+      queryParameters: {'book': book},
+    );
+    final response = await _client.get(uri, headers: _headers);
+    _ensureSuccess(response);
+    final items = jsonDecode(response.body) as List<dynamic>;
+    return items.map((item) => item as int).toList();
+  }
+
+  Future<List<VerseSection>> fetchSections({
+    required String book,
+    required int chapter,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reels/sections').replace(
+      queryParameters: {
+        'book': book,
+        'chapter': '$chapter',
+      },
+    );
+    final response = await _client.get(uri, headers: _headers);
+    _ensureSuccess(response);
+    final items = jsonDecode(response.body) as List<dynamic>;
+    return items
+        .map((item) => VerseSection.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   Future<LikeStatus> likeReel(int reelId) async {
@@ -158,19 +202,43 @@ class ApiClient {
   Future<BibleVerse> fetchVerse({
     required Reel reel,
     required String versionId,
+    int? startVerse,
+    int? endVerse,
   }) async {
+    final start = startVerse ?? reel.startVerse;
+    final end = endVerse ?? reel.endVerse;
     final uri = Uri.parse('$_baseUrl/bible/verse').replace(
       queryParameters: {
         'book': reel.book,
         'chapter': '${reel.chapter}',
-        'start_verse': '${reel.startVerse}',
-        'end_verse': '${reel.endVerse}',
+        'start_verse': '$start',
+        'end_verse': '$end',
         'version_id': versionId,
       },
     );
     final response = await _client.get(uri);
     _ensureSuccess(response);
     return BibleVerse.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<WordStudy> fetchWordStudy({
+    required Reel reel,
+    int? startVerse,
+    int? endVerse,
+  }) async {
+    final start = startVerse ?? reel.startVerse;
+    final end = endVerse ?? reel.endVerse;
+    final uri = Uri.parse('$_baseUrl/bible/word-study').replace(
+      queryParameters: {
+        'book': reel.book,
+        'chapter': '${reel.chapter}',
+        'start_verse': '$start',
+        'end_verse': '$end',
+      },
+    );
+    final response = await _client.get(uri);
+    _ensureSuccess(response);
+    return WordStudy.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<BibleAudio> fetchAudio({
@@ -181,6 +249,8 @@ class ApiClient {
       queryParameters: {
         'book': reel.book,
         'chapter': '${reel.chapter}',
+        'start_verse': '${reel.startVerse}',
+        'end_verse': '${reel.endVerse}',
         'version_id': versionId,
       },
     );

@@ -6,6 +6,7 @@ class StorageService {
   static const _translationKey = 'translation_version';
   static const _autoplayVoiceKey = 'autoplay_voice';
   static const _voiceMutedKey = 'voice_muted';
+  static const _discoveryModeKey = 'discovery_mode';
   static const _likedReelsBox = 'liked_reels';
   static const _verseCacheBox = 'verse_cache';
 
@@ -88,6 +89,16 @@ class StorageService {
   Future<void> saveVoiceMuted(bool muted) async {
     final prefs = await _requirePrefs();
     await prefs.setBool(_voiceMutedKey, muted);
+  }
+
+  Future<bool> readDiscoveryMode({bool fallback = false}) async {
+    final prefs = await _requirePrefs();
+    return prefs.getBool(_discoveryModeKey) ?? fallback;
+  }
+
+  Future<void> saveDiscoveryMode(bool enabled) async {
+    final prefs = await _requirePrefs();
+    await prefs.setBool(_discoveryModeKey, enabled);
   }
 
   Future<void> rememberLikedReel(int reelId) async {
