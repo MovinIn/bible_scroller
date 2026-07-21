@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # Local helloao chapter JSON cache (pipeline/data/chapters). Used when
     # BIBLE_BRAIN_API_KEY is unset so browsing still has real verse text/audio.
     chapter_cache_root: str = ""
+    word_study_root: str = ""
     media_base_url: str = "http://127.0.0.1:8000"
     seed_manifest_path: str = ""
     # 0 = seed every group from the manifest.
