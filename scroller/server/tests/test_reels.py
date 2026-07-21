@@ -2,14 +2,24 @@ from src.models import Reel, User
 from src.services import auth as auth_service
 
 
-def _add_reel(db_session, *, book: str, chapter: int, verse: int, iq_book_id: str) -> Reel:
+def _add_reel(
+    db_session,
+    *,
+    book: str,
+    chapter: int,
+    verse: int,
+    iq_book_id: str,
+    end_verse: int | None = None,
+) -> Reel:
+    end = end_verse if end_verse is not None else verse
+    reference = f"{book} {chapter}:{verse}" if end == verse else f"{book} {chapter}:{verse}-{end}"
     reel = Reel(
-        reference=f"{book} {chapter}:{verse}",
+        reference=reference,
         book=book,
         chapter=chapter,
         start_verse=verse,
-        end_verse=verse,
-        slug=f"{book}_{chapter}_{verse}-{verse}",
+        end_verse=end,
+        slug=f"{book}_{chapter}_{verse}-{end}",
         image_url=f"https://example.com/{book}_{chapter}_{verse}.png",
         iq_book_id=iq_book_id,
     )
@@ -293,3 +303,67 @@ def test_returns_earlier_reels_when_before_id_is_set(client, db_session) -> None
     assert payload["items"][-1]["id"] == genesis_last.id
     assert payload["items"][-1]["book"] == "Genesis"
     assert payload["next_cursor"] == genesis_last.id
+
+
+def test_returns_distinct_chapters_ascending_when_book_has_reels(client, db_session) -> None:
+    _add_reel(db_session, book="John", chapter=3, verse=16, iq_book_id="43")
+    _add_reel(db_session, book="John", chapter=1, verse=1, iq_book_id="43")
+    _add_reel(db_session, book="John", chapter=3, verse=1, end_verse=4, iq_book_id="43")
+    _add_reel(db_session, book="Acts", chapter=1, verse=1, iq_book_id="44")
+
+    response = client.get("/reels/chapters", params={"book": "John"})
+
+    assert response.status_code == 200
+    assert response.json() == [1, 3]
+
+
+def test_returns_empty_chapters_when_book_has_no_reels(client, db_session) -> None:
+    _add_reel(db_session, book="John", chapter=1, verse=1, iq_book_id="43")
+
+    response = client.get("/reels/chapters", params={"book": "Romans"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_returns_sections_ordered_by_start_verse_when_chapter_listed(client, db_session) -> None:
+    second = _add_reel(
+        db_session, book="John", chapter=3, verse=5, end_verse=8, iq_book_id="43"
+    )
+    first = _add_reel(
+        db_session, book="John", chapter=3, verse=1, end_verse=4, iq_book_id="43"
+    )
+    _add_reel(db_session, book="John", chapter=1, verse=1, end_verse=4, iq_book_id="43")
+
+    response = client.get(
+        "/reels/sections",
+        params={"book": "John", "chapter": 3},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": first.id,
+            "start_verse": 1,
+            "end_verse": 4,
+            "reference": "John 3:1-4",
+        },
+        {
+            "id": second.id,
+            "start_verse": 5,
+            "end_verse": 8,
+            "reference": "John 3:5-8",
+        },
+    ]
+
+
+def test_returns_empty_sections_when_chapter_has_no_reels(client, db_session) -> None:
+    _add_reel(db_session, book="John", chapter=1, verse=1, iq_book_id="43")
+
+    response = client.get(
+        "/reels/sections",
+        params={"book": "John", "chapter": 99},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []

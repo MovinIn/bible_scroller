@@ -34,6 +34,13 @@ class ReelFeedOut(BaseModel):
     prev_cursor: int | None = None
 
 
+class VerseSectionOut(BaseModel):
+    id: int
+    start_verse: int
+    end_verse: int
+    reference: str
+
+
 class CommentOut(BaseModel):
     id: int
     reel_id: int
@@ -67,9 +74,36 @@ class BibleVerseOut(BaseModel):
     verse_id: str
 
 
+class BibleAudioVerseTimingOut(BaseModel):
+    verse: int
+    start_ms: int
+    end_ms: int
+
+
 class BibleAudioOut(BaseModel):
     reference: str
     version_id: str
     audio_url: str
     book_id: str
     chapter_id: int
+    start_verse: int = 1
+    end_verse: int = 1
+    verses: list[BibleAudioVerseTimingOut] = []
+
+
+class BibleWordGroupOut(BaseModel):
+    phrase: str
+    strongs: str
+    lemma: str = ""
+    definition: str = ""
+
+
+class BibleWordStudyVerseOut(BaseModel):
+    verse: int
+    groups: list[BibleWordGroupOut]
+
+
+class BibleWordStudyOut(BaseModel):
+    reference: str
+    version_id: str
+    verses: list[BibleWordStudyVerseOut]

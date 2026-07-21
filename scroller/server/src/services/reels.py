@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import random
+from typing import Any
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from src.models import Comment, CommentLike, Reel, ReelLike, User
-from src.schemas import CommentOut, ReelFeedOut, ReelOut, UserOut
+from src.schemas import CommentOut, ReelFeedOut, ReelOut, UserOut, VerseSectionOut
+
+POPULAR_PROBABILITY = 0.75
+MAX_DISCOVERY_EXCLUDE = 200
 
 
 def _user_out(user: User) -> UserOut:
@@ -160,6 +166,104 @@ def get_feed(
     )
 
 
+def parse_exclude_ids(exclude: str | None) -> list[int]:
+    if not exclude or not exclude.strip():
+        return []
+    ids: list[int] = []
+    for part in exclude.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            continue
+        if len(ids) >= MAX_DISCOVERY_EXCLUDE:
+            break
+    return ids
+
+
+def get_discovery_feed(
+    db: Session,
+    user: User | None,
+    *,
+    limit: int,
+    exclude_ids: list[int] | None = None,
+    rng: Any | None = None,
+) -> ReelFeedOut:
+    """Return a weighted-random discovery batch.
+
+    Each slot picks from liked reels (like_count >= 1, weighted by count) with
+    probability POPULAR_PROBABILITY; otherwise from non-liked reels uniformly.
+    """
+    rng = rng if rng is not None else random.Random()
+    excluded = set(exclude_ids or [])
+
+    like_rows = (
+        db.query(ReelLike.reel_id, func.count(ReelLike.id))
+        .group_by(ReelLike.reel_id)
+        .all()
+    )
+    like_by_id = {reel_id: int(count) for reel_id, count in like_rows}
+
+    candidates = db.query(Reel).order_by(Reel.id.asc()).all()
+    available = [reel for reel in candidates if reel.id not in excluded]
+    if not available:
+        return ReelFeedOut(items=[], next_cursor=None, prev_cursor=None)
+
+    popular: list[Reel] = []
+    rest: list[Reel] = []
+    for reel in available:
+        if like_by_id.get(reel.id, 0) >= 1:
+            popular.append(reel)
+        else:
+            rest.append(reel)
+
+    picked: list[Reel] = []
+    picked_ids: set[int] = set()
+    popular_pool = list(popular)
+    rest_pool = list(rest)
+    # When nothing is liked, sample uniformly from all available.
+    uniform_fallback = list(available) if not popular else list(rest)
+
+    while len(picked) < limit and (popular_pool or rest_pool or uniform_fallback):
+        use_popular = (
+            popular_pool
+            and rng.random() < POPULAR_PROBABILITY
+        )
+        if use_popular:
+            weights = [like_by_id[reel.id] for reel in popular_pool]
+            chosen_id = rng.choices(
+                [reel.id for reel in popular_pool],
+                weights=weights,
+                k=1,
+            )[0]
+            chosen = next(reel for reel in popular_pool if reel.id == chosen_id)
+            popular_pool = [reel for reel in popular_pool if reel.id != chosen_id]
+        else:
+            pool = rest_pool if rest_pool else (popular_pool if popular_pool else uniform_fallback)
+            if not pool:
+                break
+            chosen_id = rng.choice([reel.id for reel in pool])
+            chosen = next(reel for reel in pool if reel.id == chosen_id)
+            rest_pool = [reel for reel in rest_pool if reel.id != chosen_id]
+            popular_pool = [reel for reel in popular_pool if reel.id != chosen_id]
+            uniform_fallback = [reel for reel in uniform_fallback if reel.id != chosen_id]
+
+        if chosen.id in picked_ids:
+            continue
+        picked.append(chosen)
+        picked_ids.add(chosen.id)
+
+    remaining = len(available) - len(picked)
+    next_cursor = picked[-1].id if remaining > 0 and picked else None
+    return ReelFeedOut(
+        items=_reels_to_out(db, user, picked),
+        next_cursor=next_cursor,
+        prev_cursor=None,
+    )
+
+
 def list_books(db: Session) -> list[str]:
     rows = (
         db.query(Reel.book, Reel.iq_book_id)
@@ -175,6 +279,35 @@ def list_books(db: Session) -> list[str]:
         seen.add(book)
         books.append(book)
     return books
+
+
+def list_chapters(db: Session, book: str) -> list[int]:
+    rows = (
+        db.query(Reel.chapter)
+        .filter(Reel.book == book.strip())
+        .distinct()
+        .order_by(Reel.chapter.asc())
+        .all()
+    )
+    return [chapter for (chapter,) in rows]
+
+
+def list_sections(db: Session, book: str, chapter: int) -> list[VerseSectionOut]:
+    reels = (
+        db.query(Reel)
+        .filter(Reel.book == book.strip(), Reel.chapter == chapter)
+        .order_by(Reel.start_verse.asc(), Reel.id.asc())
+        .all()
+    )
+    return [
+        VerseSectionOut(
+            id=reel.id,
+            start_verse=reel.start_verse,
+            end_verse=reel.end_verse,
+            reference=reel.reference,
+        )
+        for reel in reels
+    ]
 
 
 def comment_to_out(comment: Comment, user: User | None, db: Session) -> CommentOut:

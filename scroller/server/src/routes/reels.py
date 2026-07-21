@@ -11,13 +11,27 @@ from src.schemas import (
     BibleAudioOut,
     BibleVerseOut,
     BibleVersionOut,
+    BibleWordGroupOut,
+    BibleWordStudyOut,
+    BibleWordStudyVerseOut,
     CommentCreate,
     CommentOut,
     LikeStatusOut,
     ReelFeedOut,
+    VerseSectionOut,
 )
 from src.services.bible_brain_service import get_bible_client
-from src.services.reels import comment_to_out, get_feed, list_books, list_comments
+from src.services.reels import (
+    comment_to_out,
+    get_discovery_feed,
+    get_feed,
+    list_books,
+    list_chapters,
+    list_comments,
+    list_sections,
+    parse_exclude_ids,
+)
+from src.services.word_study import get_word_study_service
 
 router = APIRouter(prefix="/reels", tags=["reels"])
 
@@ -43,9 +57,41 @@ def feed(
     )
 
 
+@router.get("/discovery", response_model=ReelFeedOut)
+def discovery(
+    limit: int = Query(default=10, ge=1, le=50),
+    exclude: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_optional_user),
+) -> ReelFeedOut:
+    return get_discovery_feed(
+        db,
+        user,
+        limit=limit,
+        exclude_ids=parse_exclude_ids(exclude),
+    )
+
+
 @router.get("/books", response_model=list[str])
 def books(db: Session = Depends(get_db)) -> list[str]:
     return list_books(db)
+
+
+@router.get("/chapters", response_model=list[int])
+def chapters(
+    book: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+) -> list[int]:
+    return list_chapters(db, book)
+
+
+@router.get("/sections", response_model=list[VerseSectionOut])
+def sections(
+    book: str = Query(..., min_length=1),
+    chapter: int = Query(..., ge=1),
+    db: Session = Depends(get_db),
+) -> list[VerseSectionOut]:
+    return list_sections(db, book, chapter)
 
 
 @router.get("/{reel_id}/comments", response_model=list[CommentOut])
@@ -222,20 +268,75 @@ def bible_verse(
 def bible_audio(
     book: str = Query(...),
     chapter: int = Query(..., ge=1),
+    start_verse: int = Query(default=1, ge=1),
+    end_verse: int = Query(default=1, ge=1),
     version_id: str = Query(default="esv"),
 ) -> BibleAudioOut:
+    if end_verse < start_verse:
+        raise HTTPException(status_code=400, detail="end_verse must be >= start_verse")
+
+    reference = (
+        f"{book} {chapter}:{start_verse}"
+        if start_verse == end_verse
+        else f"{book} {chapter}:{start_verse}-{end_verse}"
+    )
     try:
-        audio_url = get_bible_client().get_chapter_audio_url(
+        timed = get_bible_client().get_chapter_audio_with_verse_timings(
             book=book,
             chapter=chapter,
+            start_verse=start_verse,
+            end_verse=end_verse,
             version_id=version_id,
         )
+        audio_url = str(timed.get("audio_url") or "")
+        verses = timed.get("verses") or []
+        # Without verse timings, do not return a chapter URL (avoids full-chapter play).
+        if not verses:
+            audio_url = ""
     except Exception:
         audio_url = ""
+        verses = []
     return BibleAudioOut(
-        reference=f"{book} {chapter}",
+        reference=reference,
         version_id=version_id.lower(),
         audio_url=audio_url,
         book_id=dbp_book_id(book),
         chapter_id=chapter,
+        start_verse=start_verse,
+        end_verse=end_verse,
+        verses=verses,
+    )
+
+
+@bible_router.get("/word-study", response_model=BibleWordStudyOut)
+def bible_word_study(
+    book: str = Query(...),
+    chapter: int = Query(..., ge=1),
+    start_verse: int = Query(..., ge=1),
+    end_verse: int = Query(..., ge=1),
+) -> BibleWordStudyOut:
+    if end_verse < start_verse:
+        raise HTTPException(status_code=400, detail="end_verse must be >= start_verse")
+    try:
+        payload = get_word_study_service().get_word_study(
+            book=book,
+            chapter=chapter,
+            start_verse=start_verse,
+            end_verse=end_verse,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return BibleWordStudyOut(
+        reference=payload["reference"],
+        version_id=payload["version_id"],
+        verses=[
+            BibleWordStudyVerseOut(
+                verse=verse["verse"],
+                groups=[BibleWordGroupOut(**group) for group in verse["groups"]],
+            )
+            for verse in payload["verses"]
+        ],
     )
