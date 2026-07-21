@@ -160,12 +160,8 @@ class BibleBrainClient:
             "text": text_ids[0] if text_ids else defaults["text"],
             "text_ids": text_ids or [defaults["text"]],
             "audio": ranked_default[0] if ranked_default else default_audio,
-            "audio_candidates": audio_candidates
-            or (
-                [{"id": default_audio, "type": "audio", "segmentation": "chapter"}]
-                if default_audio
-                else []
-            ),
+            # Only real API audio filesets — do not pad with defaults (avoids fake timed clips).
+            "audio_candidates": audio_candidates,
         }
         self._fileset_cache[normalized] = resolved
         return resolved
@@ -237,6 +233,93 @@ class BibleBrainClient:
             if _is_direct_audio_url(url):
                 return url
         return helloao
+
+    def get_chapter_audio_with_verse_timings(
+        self,
+        *,
+        book: str,
+        chapter: int,
+        start_verse: int,
+        end_verse: int,
+        version_id: str,
+    ) -> dict[str, Any]:
+        """Chapter mp3 + verse ms ranges for [start_verse, end_verse].
+
+        When timings are unavailable, returns empty audio_url and verses so the
+        client does not play an unclipped chapter (e.g. helloao without stamps).
+        """
+        empty: dict[str, Any] = {
+            "audio_url": "",
+            "fileset_id": "",
+            "verses": [],
+        }
+        if not self._api_key:
+            return empty
+
+        book_id = dbp_book_id(book)
+        filesets = self.resolve_filesets(version_id)
+        candidates = filesets.get("audio_candidates")
+        if not isinstance(candidates, list):
+            candidates = []
+        ranked = _rank_audio_candidates(
+            [item for item in candidates if isinstance(item, dict)],
+            prefer_nt=_is_new_testament_book(book),
+        )
+        # Do not fall back to DEFAULT_FILESETS audio — only filesets present on the bible.
+        for audio_fileset in ranked:
+            try:
+                response = self._get_client().get(
+                    f"/bibles/filesets/{audio_fileset}/{book_id}/{chapter}",
+                    params=self._params(),
+                )
+                response.raise_for_status()
+                url = _extract_audio_url(response.json())
+            except (httpx.HTTPError, ValueError, KeyError):
+                continue
+            if not _is_direct_audio_url(url):
+                continue
+            verses = self._fetch_verse_timings(
+                fileset_id=audio_fileset,
+                book_id=book_id,
+                chapter=chapter,
+                start_verse=start_verse,
+                end_verse=end_verse,
+            )
+            if not verses:
+                return {
+                    "audio_url": url,
+                    "fileset_id": audio_fileset,
+                    "verses": [],
+                }
+            return {
+                "audio_url": url,
+                "fileset_id": audio_fileset,
+                "verses": verses,
+            }
+        return empty
+
+    def _fetch_verse_timings(
+        self,
+        *,
+        fileset_id: str,
+        book_id: str,
+        chapter: int,
+        start_verse: int,
+        end_verse: int,
+    ) -> list[dict[str, int]]:
+        try:
+            response = self._get_client().get(
+                f"/timestamps/{fileset_id}/{book_id}/{chapter}",
+                params=self._params(),
+            )
+            response.raise_for_status()
+        except httpx.HTTPError:
+            return []
+        return _verse_timings_from_timestamp_payload(
+            response.json(),
+            start_verse=start_verse,
+            end_verse=end_verse,
+        )
 
     def _chapter_cache_root(self) -> Path | None:
         configured = settings.chapter_cache_root.strip()
@@ -363,6 +446,62 @@ def _is_direct_audio_url(url: str) -> bool:
     if ".m3u8" in lower:
         return False
     return True
+
+
+def _verse_timings_from_timestamp_payload(
+    payload: Any,
+    *,
+    start_verse: int,
+    end_verse: int,
+) -> list[dict[str, int]]:
+    """Convert Bible Brain timestamp rows into inclusive verse ms ranges."""
+    rows: list[tuple[int, float]] = []
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        raw_verse = item.get("verse_start")
+        raw_ts = item.get("timestamp")
+        try:
+            verse_num = int(str(raw_verse).strip())
+            timestamp_s = float(raw_ts)
+        except (TypeError, ValueError):
+            continue
+        if verse_num < 1:
+            continue
+        rows.append((verse_num, timestamp_s))
+    if not rows:
+        return []
+    rows.sort(key=lambda pair: (pair[1], pair[0]))
+
+    by_verse: dict[int, float] = {}
+    for verse_num, timestamp_s in rows:
+        by_verse.setdefault(verse_num, timestamp_s)
+
+    ordered = sorted(by_verse.items(), key=lambda pair: pair[0])
+    result: list[dict[str, int]] = []
+    for index, (verse_num, start_s) in enumerate(ordered):
+        if verse_num < start_verse or verse_num > end_verse:
+            continue
+        if index + 1 < len(ordered):
+            end_s = ordered[index + 1][1]
+            end_ms = int(round(end_s * 1000))
+        else:
+            # No following timestamp in chapter — client clamps to audio duration.
+            end_ms = -1
+        start_ms = int(round(start_s * 1000))
+        if end_ms != -1 and end_ms <= start_ms:
+            end_ms = start_ms + 1
+        result.append({"verse": verse_num, "start_ms": start_ms, "end_ms": end_ms})
+
+    expected = list(range(start_verse, end_verse + 1))
+    got = [item["verse"] for item in result]
+    if got != expected:
+        # Missing or non-contiguous timings for the requested range — fail closed.
+        return []
+    return result
 
 
 def _flatten_filesets(raw: Any) -> list[dict[str, Any]]:

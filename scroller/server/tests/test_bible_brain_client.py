@@ -487,6 +487,189 @@ def test_flattens_nested_fileset_groups() -> None:
         "dbp-vid": [{"id": "ENGNIVN2DA", "type": "audio"}],
     }
 
-    flattened = _flatten_filesets(raw)
+    flat = _flatten_filesets(raw)
+    assert {item["id"] for item in flat} == {"ENGNIV", "ENGNIVN2DA"}
 
-    assert [item["id"] for item in flattened] == ["ENGNIV", "ENGNIVN2DA"]
+
+def test_builds_verse_timing_ranges_for_john_3_16_17() -> None:
+    from src.services.bible_brain_client import _verse_timings_from_timestamp_payload
+
+    payload = {
+        "data": [
+            {"verse_start": "0", "timestamp": 0},
+            {"verse_start": "15", "timestamp": 40.0},
+            {"verse_start": "16", "timestamp": 45.2},
+            {"verse_start": "17", "timestamp": 52.1},
+            {"verse_start": "18", "timestamp": 59.8},
+        ]
+    }
+
+    verses = _verse_timings_from_timestamp_payload(
+        payload,
+        start_verse=16,
+        end_verse=17,
+    )
+
+    assert verses == [
+        {"verse": 16, "start_ms": 45200, "end_ms": 52100},
+        {"verse": 17, "start_ms": 52100, "end_ms": 59800},
+    ]
+
+
+def test_returns_open_ended_end_ms_when_verse_is_last_in_chapter() -> None:
+    from src.services.bible_brain_client import _verse_timings_from_timestamp_payload
+
+    payload = {
+        "data": [
+            {"verse_start": "16", "timestamp": 45.2},
+            {"verse_start": "17", "timestamp": 52.1},
+        ]
+    }
+
+    verses = _verse_timings_from_timestamp_payload(
+        payload,
+        start_verse=17,
+        end_verse=17,
+    )
+
+    assert verses == [{"verse": 17, "start_ms": 52100, "end_ms": -1}]
+
+
+def test_returns_empty_timings_when_requested_range_is_missing_a_verse() -> None:
+    from src.services.bible_brain_client import _verse_timings_from_timestamp_payload
+
+    payload = {
+        "data": [
+            {"verse_start": "16", "timestamp": 45.2},
+            {"verse_start": "18", "timestamp": 59.8},
+        ]
+    }
+
+    verses = _verse_timings_from_timestamp_payload(
+        payload,
+        start_verse=16,
+        end_verse=18,
+    )
+
+    assert verses == []
+
+
+def test_returns_empty_timings_when_timestamp_endpoint_404s() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if _path_matches(request, "/bibles/ENGESV"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "filesets": {
+                            "dbp-prod": [
+                                {"id": "ENGESVN_ET", "type": "text_plain"},
+                                {"id": "ENGESVN2DA", "type": "audio_drama"},
+                            ]
+                        }
+                    }
+                },
+            )
+        if _path_matches(request, "/bibles/filesets/ENGESVN2DA/JHN/3"):
+            return httpx.Response(
+                200,
+                json={"data": [{"path": "https://cdn.example.com/esv-jhn-3.mp3"}]},
+            )
+        if _path_matches(request, "/timestamps/ENGESVN2DA/JHN/3"):
+            return httpx.Response(404, json={"error": "not found"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = BibleBrainClient(api_key="test-key", client=_mock_client(handler))
+    result = client.get_chapter_audio_with_verse_timings(
+        book="John",
+        chapter=3,
+        start_verse=16,
+        end_verse=17,
+        version_id="esv",
+    )
+
+    assert result["audio_url"] == "https://cdn.example.com/esv-jhn-3.mp3"
+    assert result["verses"] == []
+
+
+def test_returns_verse_timings_with_matching_fileset_audio() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if _path_matches(request, "/bibles/ENGESV"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "filesets": {
+                            "dbp-prod": [
+                                {"id": "ENGESVN_ET", "type": "text_plain"},
+                                {"id": "ENGESVN2DA", "type": "audio_drama"},
+                            ]
+                        }
+                    }
+                },
+            )
+        if _path_matches(request, "/bibles/filesets/ENGESVN2DA/JHN/3"):
+            return httpx.Response(
+                200,
+                json={"data": [{"path": "https://cdn.example.com/esv-jhn-3.mp3"}]},
+            )
+        if _path_matches(request, "/timestamps/ENGESVN2DA/JHN/3"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"verse_start": "16", "timestamp": 45.2},
+                        {"verse_start": "17", "timestamp": 52.1},
+                        {"verse_start": "18", "timestamp": 59.8},
+                    ]
+                },
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = BibleBrainClient(api_key="test-key", client=_mock_client(handler))
+    result = client.get_chapter_audio_with_verse_timings(
+        book="John",
+        chapter=3,
+        start_verse=16,
+        end_verse=17,
+        version_id="esv",
+    )
+
+    assert result["audio_url"] == "https://cdn.example.com/esv-jhn-3.mp3"
+    assert result["fileset_id"] == "ENGESVN2DA"
+    assert result["verses"] == [
+        {"verse": 16, "start_ms": 45200, "end_ms": 52100},
+        {"verse": 17, "start_ms": 52100, "end_ms": 59800},
+    ]
+
+
+def test_clears_audio_url_when_only_helloao_fallback_is_available() -> None:
+    """Timed clips require Bible Brain timestamps; helloao alone must not play full chapter."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if _path_matches(request, "/bibles/ENGESV"):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "filesets": {
+                            "dbp-prod": [
+                                {"id": "ENGESVN_ET", "type": "text_plain"},
+                            ]
+                        }
+                    }
+                },
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = BibleBrainClient(api_key="test-key", client=_mock_client(handler))
+    result = client.get_chapter_audio_with_verse_timings(
+        book="John",
+        chapter=3,
+        start_verse=16,
+        end_verse=16,
+        version_id="esv",
+    )
+
+    assert result["audio_url"] == ""
+    assert result["verses"] == []
