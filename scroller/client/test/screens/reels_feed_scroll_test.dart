@@ -36,6 +36,9 @@ class _FakeReelsController extends ReelsController {
   }
 
   @override
+  VoiceoverTapAction peekVoiceoverTapAction(Reel reel) => VoiceoverTapAction.pause;
+
+  @override
   Future<VoiceoverTapAction> toggleVoiceoverPlayback(Reel reel) async {
     toggleCalls += 1;
     return VoiceoverTapAction.pause;

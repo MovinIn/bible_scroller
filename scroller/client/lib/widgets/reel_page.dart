@@ -67,8 +67,6 @@ class ReelPage extends StatelessWidget {
             ),
           ),
         ),
-        if (playbackSplashController != null)
-          PlaybackSplashOverlay(controller: playbackSplashController!),
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 88, 24),
@@ -105,6 +103,10 @@ class ReelPage extends StatelessWidget {
         Positioned.fill(
           child: _ReelBodyTapTarget(onTap: onBodyTap),
         ),
+        // Above the tap target so the flash is never covered; IgnorePointer
+        // inside the overlay keeps taps reaching the body target.
+        if (playbackSplashController != null)
+          PlaybackSplashOverlay(controller: playbackSplashController!),
         Positioned(
           right: 12,
           top: 0,

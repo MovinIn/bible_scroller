@@ -71,7 +71,7 @@ class _TrackingApi extends ApiClient {
       await gate.future;
     }
     return const [
-      BibleVersion(versionId: 'niv', name: 'New International Version'),
+      BibleVersion(versionId: 'esv', name: 'English Standard Version'),
     ];
   }
 
@@ -181,7 +181,7 @@ void main() {
     await controller.ensureVersionsLoaded();
 
     expect(controller.versions, hasLength(1));
-    expect(controller.versions.first.versionId, 'niv');
+    expect(controller.versions.first.versionId, 'esv');
     expect(api.fetchVersionsCalled, isTrue);
   });
 

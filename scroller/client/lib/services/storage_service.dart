@@ -52,9 +52,17 @@ class StorageService {
     await prefs.setString(_deviceIdKey, deviceId);
   }
 
-  Future<String> readTranslationVersion({String fallback = 'niv'}) async {
+  Future<String> readTranslationVersion({String fallback = 'esv'}) async {
     final prefs = await _requirePrefs();
-    return prefs.getString(_translationKey) ?? fallback;
+    final stored = prefs.getString(_translationKey);
+    if (stored == null || stored.isEmpty) {
+      return fallback;
+    }
+    // Free Bible Brain keys typically lack NIV text rights; prefer ESV.
+    if (stored == 'niv') {
+      return fallback;
+    }
+    return stored;
   }
 
   Future<void> saveTranslationVersion(String versionId) async {

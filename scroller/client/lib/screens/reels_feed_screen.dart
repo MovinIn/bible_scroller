@@ -301,17 +301,16 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                     onVoiceTap: () => controller.toggleMute(),
                     onBookTap: () => _openBookPicker(controller, reel),
                     onBodyTap: () async {
+                      // Flash before awaiting play so failures still show splash.
+                      final intended = controller.peekVoiceoverTapAction(reel);
+                      _flashPlaybackSplash(
+                        reel,
+                        playbackSplashIconFor(intended),
+                      );
                       try {
-                        final action = await controller.toggleVoiceoverPlayback(reel);
-                        if (!mounted) {
-                          return;
-                        }
-                        _flashPlaybackSplash(
-                          reel,
-                          playbackSplashIconFor(action),
-                        );
+                        await controller.toggleVoiceoverPlayback(reel);
                       } catch (_) {
-                        // Audio may be unavailable without Bible Brain API key.
+                        // Audio may be unavailable (bad URL / HLS / missing key).
                       }
                     },
                     onVoiceLongPress: () async {

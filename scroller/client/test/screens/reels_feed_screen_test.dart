@@ -144,10 +144,18 @@ class _SpyReelsController extends ReelsController {
 
   int voiceoverToggleCount = 0;
   VoiceoverTapAction nextToggleAction = VoiceoverTapAction.pause;
+  VoiceoverTapAction peekAction = VoiceoverTapAction.pause;
+  bool throwOnToggle = false;
+
+  @override
+  VoiceoverTapAction peekVoiceoverTapAction(Reel reel) => peekAction;
 
   @override
   Future<VoiceoverTapAction> toggleVoiceoverPlayback(Reel reel) async {
     voiceoverToggleCount += 1;
+    if (throwOnToggle) {
+      throw StateError('Audio unavailable');
+    }
     return nextToggleAction;
   }
 }
@@ -301,6 +309,7 @@ void main() {
   testWidgets('shows pause splash overlay when reel body tap pauses audio',
       (tester) async {
     controller.nextToggleAction = VoiceoverTapAction.pause;
+    controller.peekAction = VoiceoverTapAction.pause;
     await pumpFeed(tester);
 
     await tester.tapAt(const Offset(120, 300));
@@ -309,6 +318,23 @@ void main() {
 
     expect(find.byIcon(Icons.pause_rounded), findsOneWidget);
     expect(find.textContaining('Playing'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('shows play splash when body tap fails to start audio',
+      (tester) async {
+    controller.throwOnToggle = true;
+    controller.peekAction = VoiceoverTapAction.start;
+    await pumpFeed(tester);
+
+    await tester.tapAt(const Offset(120, 300));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byIcon(Icons.play_arrow_rounded), findsOneWidget);
+    expect(controller.voiceoverToggleCount, 1);
 
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pumpAndSettle();

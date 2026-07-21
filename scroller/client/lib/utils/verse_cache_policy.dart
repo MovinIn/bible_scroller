@@ -18,5 +18,10 @@ bool isPlayableAudioUrl(String url) {
   if (uri.host == 'example.com' || uri.host.endsWith('.example.com')) {
     return false;
   }
+  // just_audio on web cannot play HLS playlists from Bible Brain streams.
+  final path = uri.path.toLowerCase();
+  if (path.endsWith('.m3u8') || path.contains('playlist.m3u8')) {
+    return false;
+  }
   return true;
 }

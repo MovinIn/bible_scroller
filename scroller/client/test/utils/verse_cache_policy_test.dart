@@ -37,4 +37,13 @@ void main() {
   test('returns false for empty audio urls', () {
     expect(isPlayableAudioUrl(''), isFalse);
   });
+
+  test('returns false for hls playlist audio urls', () {
+    expect(
+      isPlayableAudioUrl(
+        'https://4.dbt.io/api/bible/filesets/ENGWEBN2SA/JHN-3-1-/playlist.m3u8',
+      ),
+      isFalse,
+    );
+  });
 }

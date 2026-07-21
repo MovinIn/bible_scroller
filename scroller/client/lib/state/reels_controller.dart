@@ -34,7 +34,7 @@ class ReelsController extends ChangeNotifier {
   bool loadingMore = false;
   bool loadingPrevious = false;
   String? error;
-  String translationVersion = 'niv';
+  String translationVersion = 'esv';
   bool autoplayVoice = true;
   bool isMuted = false;
   List<BibleVersion> versions = const [];
@@ -116,7 +116,17 @@ class ReelsController extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       versions = const [
-        BibleVersion(versionId: 'niv', name: 'New International Version'),
+        BibleVersion(versionId: 'esv', name: 'English Standard Version'),
+        BibleVersion(versionId: 'kjv', name: 'King James Version'),
+        BibleVersion(versionId: 'web', name: 'World English Bible'),
+        BibleVersion(versionId: 'nkjv', name: 'New King James Version'),
+        BibleVersion(versionId: 'nasb', name: 'New American Standard Bible'),
+        BibleVersion(versionId: 'nlt', name: 'New Living Translation'),
+        BibleVersion(versionId: 'nlh', name: 'New Living Translation (her.BIBLE)'),
+        BibleVersion(versionId: 'asv', name: 'American Standard Version'),
+        BibleVersion(versionId: 'evd', name: 'English Version for the Deaf'),
+        BibleVersion(versionId: 'rev', name: 'Revised Version 1885'),
+        BibleVersion(versionId: 'nlv', name: 'New Life Version'),
       ];
     }
   }
@@ -466,13 +476,18 @@ class ReelsController extends ChangeNotifier {
     _voiceoverReelId = null;
   }
 
-  /// Tap-to-toggle: pause / resume / replay finished audio / start if needed.
-  Future<VoiceoverTapAction> toggleVoiceoverPlayback(Reel reel) async {
-    final action = resolveVoiceoverTapAction(
+  /// Peek intended tap action without mutating playback (for optimistic UI).
+  VoiceoverTapAction peekVoiceoverTapAction(Reel reel) {
+    return resolveVoiceoverTapAction(
       isCurrentReelLoaded: _voiceoverReelId == reel.id,
       playing: _audioPlayer.playing,
       completed: _audioPlayer.processingState == ProcessingState.completed,
     );
+  }
+
+  /// Tap-to-toggle: pause / resume / replay finished audio / start if needed.
+  Future<VoiceoverTapAction> toggleVoiceoverPlayback(Reel reel) async {
+    final action = peekVoiceoverTapAction(reel);
 
     switch (action) {
       case VoiceoverTapAction.pause:
