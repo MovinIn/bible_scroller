@@ -76,7 +76,8 @@ class ReelActionBar extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _ActionButton(
-          icon: Icons.speed,
+          // Full CupertinoIcons font — safe when MaterialIcons tree-shake cache is stale.
+          icon: CupertinoIcons.speedometer,
           label: formatVoicePlaybackSpeed(playbackSpeed),
           onTap: onSpeedTap,
         ),
