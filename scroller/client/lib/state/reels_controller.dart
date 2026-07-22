@@ -29,11 +29,18 @@ class ReelsController extends ChangeNotifier {
   final VoiceAudioPlayer? _audioPlayerOverride;
   VoiceAudioPlayer? _lazyAudioPlayer;
 
+  static const int _prefetchBatchSize = 10;
+
   final List<Reel> _reels = [];
   final Map<int, String> _verseTextByReelId = {};
   /// Per-verse text: key = "$reelId:$verse".
   final Map<String, String> _verseTextByReelVerse = {};
+  final Map<int, BibleAudio> _audioByReelId = {};
+  final Map<int, Future<void>> _verseTextInFlight = {};
+  final Map<int, Future<BibleAudio>> _audioMetaInFlight = {};
   final Map<int, List<Comment>> _commentsByReelId = {};
+  bool _disposed = false;
+  int _translationEpoch = 0;
 
   bool loading = true;
   bool loadingMore = false;
@@ -58,8 +65,13 @@ class ReelsController extends ChangeNotifier {
   bool _clipFinishing = false;
   Future<void>? _booksLoadFuture;
   Future<void>? _versionsLoadFuture;
-  Future<void>? _visibleReelWork;
   int _visibleWorkGeneration = 0;
+  /// Bumped on stop / each new playVoiceover bind so superseded work cannot
+  /// mutate the shared player or `_clipVerses`.
+  int _playbackEpoch = 0;
+  /// URL the current playback epoch intends to keep bound (for late setUrl restore).
+  String? _activeBindUrl;
+  int _activeBindEpoch = 0;
   final Map<int, WordStudy> _wordStudyByReelId = {};
 
   List<Reel> get reels => List.unmodifiable(_reels);
@@ -93,10 +105,11 @@ class ReelsController extends ChangeNotifier {
 
   /// Test-only: replace in-memory feed items.
   @visibleForTesting
-  void debugSeedFeed(List<Reel> items) {
+  void debugSeedFeed(List<Reel> items, {int? nextCursor}) {
     _reels
       ..clear()
       ..addAll(items);
+    _nextCursor = nextCursor;
     notifyListeners();
   }
 
@@ -222,6 +235,26 @@ class ReelsController extends ChangeNotifier {
     await _storage.saveDiscoveryMode(false);
   }
 
+  void _clearContentCaches() {
+    _verseTextByReelId.clear();
+    _verseTextByReelVerse.clear();
+    _audioByReelId.clear();
+    _verseTextInFlight.clear();
+    _audioMetaInFlight.clear();
+  }
+
+  void _pruneContentCachesToFeed() {
+    final ids = _reels.map((reel) => reel.id).toSet();
+    _verseTextByReelId.removeWhere((id, _) => !ids.contains(id));
+    _audioByReelId.removeWhere((id, _) => !ids.contains(id));
+    _verseTextByReelVerse.removeWhere((key, _) {
+      final reelId = int.tryParse(key.split(':').first);
+      return reelId == null || !ids.contains(reelId);
+    });
+    _verseTextInFlight.removeWhere((id, _) => !ids.contains(id));
+    _audioMetaInFlight.removeWhere((id, _) => !ids.contains(id));
+  }
+
   Future<int?> _replaceFeedWith(Future<ReelFeed> Function() fetch) async {
     final feed = await fetch();
     if (feed.items.isEmpty) {
@@ -233,6 +266,7 @@ class ReelsController extends ChangeNotifier {
     _nextCursor = feed.nextCursor;
     _prevCursor = feed.prevCursor;
     _currentIndex = 0;
+    _pruneContentCachesToFeed();
     notifyListeners();
     unawaited(_scheduleOnReelVisible(0));
     return 0;
@@ -276,6 +310,7 @@ class ReelsController extends ChangeNotifier {
         ..addAll(feed.items);
       _nextCursor = feed.nextCursor;
       _prevCursor = discoveryMode ? null : feed.prevCursor;
+      _pruneContentCachesToFeed();
       loading = false;
       notifyListeners();
       if (_reels.isNotEmpty) {
@@ -299,23 +334,15 @@ class ReelsController extends ChangeNotifier {
   }
 
   Future<void> _scheduleOnReelVisible(int index) {
-    final previous = _visibleReelWork;
     final generation = ++_visibleWorkGeneration;
-    final work = () async {
-      if (previous != null) {
-        try {
-          await previous;
-        } catch (_) {
-          // Prior visibility work may have failed; still run the latest.
-        }
-      }
+    // Do not await prior visibility work — scrolling away must start the next
+    // reel immediately while superseded playVoiceover aborts on generation checks.
+    return () async {
       if (generation != _visibleWorkGeneration) {
         return;
       }
       await _runOnReelVisible(index, generation);
     }();
-    _visibleReelWork = work;
-    return work;
   }
 
   Future<void> _runOnReelVisible(int index, int generation) async {
@@ -359,6 +386,8 @@ class ReelsController extends ChangeNotifier {
     if (generation != _visibleWorkGeneration) {
       return;
     }
+    // Warm verse text + audio metadata for this window; never block playback.
+    unawaited(_prefetchAhead(index));
     if (index < _reels.length) {
       if (!discoveryMode) {
         writeLastReelCookie(_reels[index].id);
@@ -377,7 +406,10 @@ class ReelsController extends ChangeNotifier {
       return;
     }
     try {
-      await StartupTiming.track('reel.playVoiceover', () => playVoiceover(reel));
+      await StartupTiming.track(
+        'reel.playVoiceover',
+        () => playVoiceover(reel, visibilityGeneration: generation),
+      );
     } catch (_) {
       // Audio may be unavailable (browser autoplay block / missing timings).
       notifyListeners();
@@ -455,6 +487,7 @@ class ReelsController extends ChangeNotifier {
 
   Future<void> loadMoreIfNeeded(int index) async {
     _currentIndex = index;
+    var appendedFrom = -1;
     if (index >= _reels.length - 2 && _nextCursor != null && !loadingMore) {
       loadingMore = true;
       notifyListeners();
@@ -465,6 +498,7 @@ class ReelsController extends ChangeNotifier {
         final feed = useDiscovery
             ? await _api.fetchDiscoveryReels(limit: 10, excludeIds: excludeIds)
             : await _api.fetchReels(cursor: cursor, limit: 10);
+        appendedFrom = _reels.length;
         _reels.addAll(feed.items);
         _nextCursor = feed.nextCursor;
         if (useDiscovery) {
@@ -480,6 +514,9 @@ class ReelsController extends ChangeNotifier {
 
     if (index < _reels.length) {
       await _ensureVerseText(_reels[index]);
+    }
+    if (appendedFrom >= 0 && appendedFrom < _reels.length) {
+      unawaited(_prefetchAhead(appendedFrom));
     }
   }
 
@@ -502,11 +539,13 @@ class ReelsController extends ChangeNotifier {
         _nextCursor = null;
         return false;
       }
+      final appendedFrom = _reels.length;
       _reels.addAll(feed.items);
       _nextCursor = feed.nextCursor;
       if (useDiscovery) {
         _prevCursor = null;
       }
+      unawaited(_prefetchAhead(appendedFrom));
       return true;
     } catch (_) {
       return false;
@@ -533,6 +572,7 @@ class ReelsController extends ChangeNotifier {
       }
       _reels.insertAll(0, feed.items);
       _prevCursor = feed.prevCursor;
+      unawaited(_prefetchAhead(0));
       return feed.items.length;
     } catch (_) {
       return 0;
@@ -544,12 +584,86 @@ class ReelsController extends ChangeNotifier {
 
   Future<void> setTranslation(String versionId) async {
     translationVersion = versionId;
+    _translationEpoch++;
     await _storage.saveTranslationVersion(versionId);
-    _verseTextByReelId.clear();
-    _verseTextByReelVerse.clear();
+    _clearContentCaches();
     notifyListeners();
     if (currentReel != null) {
       await _ensureVerseText(currentReel!, force: true);
+    }
+  }
+
+  void _notifyIfActive() {
+    if (_disposed) {
+      return;
+    }
+    notifyListeners();
+  }
+
+  Future<void> _prefetchAhead(int fromIndex) async {
+    if (fromIndex < 0 || fromIndex >= _reels.length) {
+      return;
+    }
+    final end = (fromIndex + _prefetchBatchSize).clamp(0, _reels.length);
+    final futures = <Future<void>>[];
+    for (var i = fromIndex; i < end; i++) {
+      futures.add(_prefetchReelContent(_reels[i]));
+    }
+    await Future.wait(futures);
+  }
+
+  Future<void> _prefetchReelContent(Reel reel) async {
+    try {
+      await Future.wait([
+        _ensureVerseText(reel),
+        _ensureAudioMeta(reel),
+      ]);
+      await _ensurePerVerseTexts(reel);
+    } catch (_) {
+      // Prefetch is best-effort; visible path will retry.
+    }
+  }
+
+  Future<BibleAudio> _ensureAudioMeta(Reel reel, {bool force = false}) async {
+    if (!force) {
+      final cached = _audioByReelId[reel.id];
+      if (cached != null) {
+        return cached;
+      }
+      final inFlight = _audioMetaInFlight[reel.id];
+      if (inFlight != null) {
+        return inFlight;
+      }
+    }
+
+    final gate = Completer<BibleAudio>();
+    _audioMetaInFlight[reel.id] = gate.future;
+    final versionId = translationVersion;
+    final translationEpoch = _translationEpoch;
+    try {
+      final audio = await _api.fetchAudio(reel: reel, versionId: versionId);
+      if (translationEpoch == _translationEpoch) {
+        final playable = isPlayableAudioUrl(audio.audioUrl) &&
+            audio.verses.isNotEmpty &&
+            sectionStartMs(audio.verses) != null;
+        if (playable) {
+          _audioByReelId[reel.id] = audio;
+        }
+      }
+      gate.complete(audio);
+      return audio;
+    } catch (error, stack) {
+      if (!gate.isCompleted) {
+        // Attach a listener before completeError so tests/zones don't see
+        // an unhandled async error when prefetch is the only caller.
+        unawaited(gate.future.then<void>((_) {}, onError: (_, __) {}));
+        gate.completeError(error, stack);
+      }
+      rethrow;
+    } finally {
+      if (identical(_audioMetaInFlight[reel.id], gate.future)) {
+        _audioMetaInFlight.remove(reel.id);
+      }
     }
   }
 
@@ -577,34 +691,68 @@ class ReelsController extends ChangeNotifier {
 
   Future<void> _ensureVerseText(Reel reel, {bool force = false}) async {
     if (!force) {
-      final cached = await _storage.readCachedVerseText(
-        reelId: reel.id,
-        versionId: translationVersion,
-      );
-      if (cached != null) {
-        _verseTextByReelId[reel.id] = cached;
-        notifyListeners();
+      if (_verseTextByReelId.containsKey(reel.id)) {
         return;
       }
-      if (_verseTextByReelId.containsKey(reel.id)) {
+      final inFlight = _verseTextInFlight[reel.id];
+      if (inFlight != null) {
+        await inFlight;
         return;
       }
     }
 
+    // Register before any await so concurrent callers join this load.
+    final gate = Completer<void>();
+    _verseTextInFlight[reel.id] = gate.future;
+    final versionId = translationVersion;
+    final translationEpoch = _translationEpoch;
     try {
-      final verse = await _api.fetchVerse(reel: reel, versionId: translationVersion);
-      _verseTextByReelId[reel.id] = verse.text;
-      if (shouldCacheVerseText(verse.text)) {
-        await _storage.cacheVerseText(
+      if (!force) {
+        final cached = await _storage.readCachedVerseText(
           reelId: reel.id,
-          versionId: translationVersion,
-          text: verse.text,
+          versionId: versionId,
         );
+        if (translationEpoch != _translationEpoch) {
+          return;
+        }
+        if (cached != null) {
+          _verseTextByReelId[reel.id] = cached;
+          _notifyIfActive();
+          return;
+        }
+        if (_verseTextByReelId.containsKey(reel.id)) {
+          return;
+        }
       }
-      notifyListeners();
-    } catch (_) {
-      _verseTextByReelId[reel.id] = 'Could not load ${reel.reference}';
-      notifyListeners();
+
+      try {
+        final verse = await _api.fetchVerse(reel: reel, versionId: versionId);
+        if (translationEpoch != _translationEpoch) {
+          return;
+        }
+        _verseTextByReelId[reel.id] = verse.text;
+        if (shouldCacheVerseText(verse.text)) {
+          await _storage.cacheVerseText(
+            reelId: reel.id,
+            versionId: versionId,
+            text: verse.text,
+          );
+        }
+        _notifyIfActive();
+      } catch (_) {
+        if (translationEpoch != _translationEpoch) {
+          return;
+        }
+        _verseTextByReelId[reel.id] = 'Could not load ${reel.reference}';
+        _notifyIfActive();
+      }
+    } finally {
+      if (!gate.isCompleted) {
+        gate.complete();
+      }
+      if (identical(_verseTextInFlight[reel.id], gate.future)) {
+        _verseTextInFlight.remove(reel.id);
+      }
     }
   }
 
@@ -626,7 +774,7 @@ class ReelsController extends ChangeNotifier {
         endVerse: verse,
       );
       _verseTextByReelVerse[key] = item.text;
-      notifyListeners();
+      _notifyIfActive();
     } catch (_) {
       // Leave missing; UI falls back to full section text.
     }
@@ -718,10 +866,55 @@ class ReelsController extends ChangeNotifier {
     activeVerseNumber = reel.startVerse;
     voiceoverPresentation = VoiceoverPresentation.playingActiveVerse;
     await _ensureSingleVerseText(reel, reel.startVerse);
-    notifyListeners();
+    _notifyIfActive();
   }
 
-  Future<void> playVoiceover(Reel reel) async {
+  bool _isVisibilityCurrent(int? visibilityGeneration) {
+    return visibilityGeneration == null ||
+        visibilityGeneration == _visibleWorkGeneration;
+  }
+
+  bool _isPlaybackCurrent(int epoch, int? visibilityGeneration) {
+    return epoch == _playbackEpoch && _isVisibilityCurrent(visibilityGeneration);
+  }
+
+  Future<Duration?> _setUrlIfCurrent(String url, int epoch) async {
+    if (epoch != _playbackEpoch) {
+      return null;
+    }
+    _activeBindUrl = url;
+    _activeBindEpoch = epoch;
+    final duration = await _audioPlayer.setUrl(url);
+    if (epoch != _playbackEpoch) {
+      // A superseded setUrl may have overwritten the player; restore current bind.
+      final restoreUrl = _activeBindUrl;
+      if (_activeBindEpoch == _playbackEpoch && restoreUrl != null) {
+        await _audioPlayer.setUrl(restoreUrl);
+      }
+      return null;
+    }
+    return duration;
+  }
+
+  Future<bool> _abortPlayVoiceoverIfSuperseded(
+    Reel reel,
+    int epoch,
+    int? visibilityGeneration,
+  ) async {
+    if (_isPlaybackCurrent(epoch, visibilityGeneration)) {
+      return false;
+    }
+    // Another bind owns the player/epoch — do not stop it.
+    if (epoch == _playbackEpoch && _voiceoverReelId == reel.id) {
+      await stopVoiceover();
+    }
+    return true;
+  }
+
+  Future<void> playVoiceover(
+    Reel reel, {
+    int? visibilityGeneration,
+  }) async {
     final alreadyBegunForReel = _voiceoverReelId == reel.id &&
         voiceoverPresentation == VoiceoverPresentation.playingActiveVerse &&
         _clipVerses.isEmpty &&
@@ -733,16 +926,32 @@ class ReelsController extends ChangeNotifier {
       _clipFinishing = false;
     } else {
       await stopVoiceover();
+      if (!_isVisibilityCurrent(visibilityGeneration)) {
+        return;
+      }
       // Restore chunk presentation before awaiting audio so the UI never flashes
       // full section text while fetch/setUrl runs.
       await _beginActiveVersePresentation(reel);
     }
+    if (!_isVisibilityCurrent(visibilityGeneration)) {
+      return;
+    }
 
-    final audio = await _api.fetchAudio(reel: reel, versionId: translationVersion);
+    // Claim this bind attempt; any later stop/playVoiceover invalidates us.
+    final epoch = ++_playbackEpoch;
+
+    final audio = await _ensureAudioMeta(reel);
+    if (await _abortPlayVoiceoverIfSuperseded(
+      reel,
+      epoch,
+      visibilityGeneration,
+    )) {
+      return;
+    }
     if (!isPlayableAudioUrl(audio.audioUrl) || audio.verses.isEmpty) {
       voiceoverPresentation = VoiceoverPresentation.sectionIdle;
       activeVerseNumber = null;
-      notifyListeners();
+      _notifyIfActive();
       throw StateError('Audio unavailable for ${reel.reference}');
     }
 
@@ -750,19 +959,48 @@ class ReelsController extends ChangeNotifier {
     if (startMs == null) {
       voiceoverPresentation = VoiceoverPresentation.sectionIdle;
       activeVerseNumber = null;
-      notifyListeners();
+      _notifyIfActive();
       throw StateError('Audio unavailable for ${reel.reference}');
     }
 
     await _ensureVerseText(reel);
-    _clipVerses = List<BibleAudioVerseTiming>.from(audio.verses);
+    if (await _abortPlayVoiceoverIfSuperseded(
+      reel,
+      epoch,
+      visibilityGeneration,
+    )) {
+      return;
+    }
     await _ensurePerVerseTexts(reel);
-    final duration = await _audioPlayer.setUrl(audio.audioUrl);
+    if (await _abortPlayVoiceoverIfSuperseded(
+      reel,
+      epoch,
+      visibilityGeneration,
+    )) {
+      return;
+    }
+
+    final duration = await _setUrlIfCurrent(audio.audioUrl, epoch);
+    if (duration == null ||
+        await _abortPlayVoiceoverIfSuperseded(
+          reel,
+          epoch,
+          visibilityGeneration,
+        )) {
+      return;
+    }
     _clipVerses = clampOpenEndedVerseTimings(
-      _clipVerses,
-      duration?.inMilliseconds,
+      List<BibleAudioVerseTiming>.from(audio.verses),
+      duration.inMilliseconds,
     );
     await _audioPlayer.seek(Duration(milliseconds: startMs));
+    if (await _abortPlayVoiceoverIfSuperseded(
+      reel,
+      epoch,
+      visibilityGeneration,
+    )) {
+      return;
+    }
     _voiceoverReelId = reel.id;
     activeVerseNumber = _clipVerses.first.verse;
     voiceoverPresentation = VoiceoverPresentation.playingActiveVerse;
@@ -771,11 +1009,18 @@ class ReelsController extends ChangeNotifier {
     await _applyAudioSpeed();
     _listenToPosition();
     // Notify before play so verse UI updates even when browsers block autoplay.
-    notifyListeners();
+    _notifyIfActive();
+    if (await _abortPlayVoiceoverIfSuperseded(
+      reel,
+      epoch,
+      visibilityGeneration,
+    )) {
+      return;
+    }
     try {
       await _audioPlayer.play();
     } catch (_) {
-      notifyListeners();
+      _notifyIfActive();
       rethrow;
     }
   }
@@ -799,7 +1044,7 @@ class ReelsController extends ChangeNotifier {
         if (playing != null) {
           unawaited(_ensureSingleVerseText(playing, nextActive));
         }
-        notifyListeners();
+        _notifyIfActive();
       }
     });
   }
@@ -824,10 +1069,13 @@ class ReelsController extends ChangeNotifier {
     }
     voiceoverPresentation = VoiceoverPresentation.sectionReveal;
     activeVerseNumber = null;
-    notifyListeners();
+    _notifyIfActive();
   }
 
   Future<void> stopVoiceover() async {
+    _playbackEpoch++;
+    _activeBindUrl = null;
+    _activeBindEpoch = 0;
     _positionSub?.cancel();
     _positionSub = null;
     _clipFinishing = false;
@@ -880,6 +1128,7 @@ class ReelsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _positionSub?.cancel();
     _audioPlayerOverride?.dispose();
     _lazyAudioPlayer?.dispose();

@@ -73,7 +73,14 @@ class _FakeApi extends ApiClient {
   BibleAudio? audio;
   Future<void>? delayAudio;
   Future<void>? delayVerse;
+  /// When set, only delays audio for this reel id (others resolve immediately).
+  int? delayAudioForReelId;
   Completer<void>? verseFetchStarted;
+  Completer<void>? audioFetchStarted;
+  final List<int> audioFetchReelIds = [];
+  final List<int> verseFetchReelIds = [];
+  int fetchAudioCallCount = 0;
+  int fetchVerseCallCount = 0;
   final Map<String, String> verseTexts = {
     '16-17': 'Full section text for 16-17.',
     '16-16': 'For God so loved the world.',
@@ -86,17 +93,26 @@ class _FakeApi extends ApiClient {
     required Reel reel,
     required String versionId,
   }) async {
+    fetchAudioCallCount += 1;
+    audioFetchReelIds.add(reel.id);
     final delay = delayAudio;
-    if (delay != null) {
+    final shouldDelay =
+        delay != null &&
+        (delayAudioForReelId == null || delayAudioForReelId == reel.id);
+    final started = audioFetchStarted;
+    if (shouldDelay && started != null && !started.isCompleted) {
+      started.complete();
+    }
+    if (shouldDelay) {
       await delay;
     }
-    if (audio != null) {
+    if (audio != null && reel.id == 1) {
       return audio!;
     }
     return BibleAudio(
       reference: reel.reference,
       versionId: 'esv',
-      audioUrl: 'https://cdn.example.org/jhn3.mp3',
+      audioUrl: 'https://cdn.example.org/reel-${reel.id}.mp3',
       startVerse: reel.startVerse,
       endVerse: reel.endVerse,
       verses: [
@@ -117,6 +133,8 @@ class _FakeApi extends ApiClient {
     int? startVerse,
     int? endVerse,
   }) async {
+    fetchVerseCallCount += 1;
+    verseFetchReelIds.add(reel.id);
     final started = verseFetchStarted;
     if (started != null && !started.isCompleted) {
       started.complete();
@@ -142,10 +160,14 @@ class _FakePlayer implements VoiceAudioPlayer {
   ProcessingState _state = ProcessingState.idle;
   Duration position = Duration.zero;
   final List<Duration> seeks = [];
+  final List<String> setUrlCalls = [];
   String? url;
   bool throwOnPlay = false;
   int playCallCount = 0;
   int stopCallCount = 0;
+  Future<void>? delaySetUrl;
+  String? delaySetUrlForUrl;
+  Completer<void>? setUrlStarted;
 
   void emitPosition(Duration value) {
     position = value;
@@ -163,6 +185,16 @@ class _FakePlayer implements VoiceAudioPlayer {
 
   @override
   Future<Duration?> setUrl(String url) async {
+    setUrlCalls.add(url);
+    final shouldDelay = delaySetUrl != null &&
+        (delaySetUrlForUrl == null || delaySetUrlForUrl == url);
+    if (shouldDelay) {
+      final started = setUrlStarted;
+      if (started != null && !started.isCompleted) {
+        started.complete();
+      }
+      await delaySetUrl;
+    }
     this.url = url;
     return const Duration(minutes: 3);
   }
@@ -226,6 +258,19 @@ Future<void> _waitUntil(
     await done.future.timeout(const Duration(seconds: 2));
   } finally {
     controller.removeListener(listener);
+  }
+}
+
+Future<void> _pollUntil(
+  bool Function() predicate, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final end = DateTime.now().add(timeout);
+  while (!predicate()) {
+    if (DateTime.now().isAfter(end)) {
+      throw TimeoutException('pollUntil timed out');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
   }
 }
 
@@ -495,6 +540,110 @@ void main() {
       'For God so loved the world.',
     );
   });
+
+  test(
+    'shows next reel first verse chunk while previous reel audio is still loading',
+    () async {
+      final audioGate = Completer<void>();
+      final audioStarted = Completer<void>();
+      api.delayAudio = audioGate.future;
+      api.delayAudioForReelId = 1;
+      api.audioFetchStarted = audioStarted;
+      controller.autoplayVoice = true;
+      controller.debugSeedFeed([reel, _reelTwo()]);
+
+      unawaited(controller.onReelVisible(0));
+      await audioStarted.future;
+
+      final nextVisible = controller.onReelVisible(1);
+      await _pollUntil(
+        () =>
+            controller.isVoiceoverFor(_reelTwo()) &&
+            controller.displayVerseTextFor(_reelTwo()) == 'verse 18' &&
+            api.audioFetchReelIds.contains(2),
+      );
+
+      expect(controller.isVoiceoverFor(_reelTwo()), isTrue);
+      expect(
+        controller.displayVerseTextFor(_reelTwo()),
+        'verse 18',
+      );
+      // Next reel must start its own audio fetch before prior gate opens.
+      expect(api.audioFetchReelIds, contains(2));
+      expect(audioGate.isCompleted, isFalse);
+
+      audioGate.complete();
+      await nextVisible;
+    },
+  );
+
+  test(
+    'does not leave previous reel playing when its audio finishes after scroll away',
+    () async {
+      final audioGate = Completer<void>();
+      final audioStarted = Completer<void>();
+      api.delayAudio = audioGate.future;
+      api.delayAudioForReelId = 1;
+      api.audioFetchStarted = audioStarted;
+      controller.autoplayVoice = true;
+      controller.debugSeedFeed([reel, _reelTwo()]);
+
+      unawaited(controller.onReelVisible(0));
+      await audioStarted.future;
+
+      final nextVisible = controller.onReelVisible(1);
+      await _pollUntil(
+        () =>
+            controller.isVoiceoverFor(_reelTwo()) &&
+            controller.displayVerseTextFor(_reelTwo()) == 'verse 18' &&
+            api.audioFetchReelIds.contains(2),
+      );
+
+      expect(audioGate.isCompleted, isFalse);
+      audioGate.complete();
+      await nextVisible;
+
+      expect(controller.isVoiceoverFor(reel), isFalse);
+      expect(controller.isVoiceoverFor(_reelTwo()), isTrue);
+      expect(player.playing, isTrue);
+      expect(player.url, 'https://cdn.example.org/reel-2.mp3');
+    },
+  );
+
+  test(
+    'keeps next reel audio bound when previous setUrl finishes after scroll away',
+    () async {
+      final setUrlGate = Completer<void>();
+      final setUrlStarted = Completer<void>();
+      player.delaySetUrl = setUrlGate.future;
+      player.delaySetUrlForUrl = 'https://cdn.example.org/jhn3.mp3';
+      player.setUrlStarted = setUrlStarted;
+      controller.autoplayVoice = true;
+      controller.debugSeedFeed([reel, _reelTwo()]);
+
+      unawaited(controller.onReelVisible(0));
+      await setUrlStarted.future;
+
+      final nextVisible = controller.onReelVisible(1);
+      await _pollUntil(
+        () =>
+            controller.isVoiceoverFor(_reelTwo()) &&
+            player.playing &&
+            player.url == 'https://cdn.example.org/reel-2.mp3',
+      );
+
+      expect(setUrlGate.isCompleted, isFalse);
+      setUrlGate.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await nextVisible;
+
+      expect(controller.isVoiceoverFor(_reelTwo()), isTrue);
+      expect(player.playing, isTrue);
+      expect(player.url, 'https://cdn.example.org/reel-2.mp3');
+      expect(player.setUrlCalls, contains('https://cdn.example.org/jhn3.mp3'));
+      expect(player.setUrlCalls, contains('https://cdn.example.org/reel-2.mp3'));
+    },
+  );
 
   test('does not stop voiceover again during playVoiceover after early begin',
       () async {

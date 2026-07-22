@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -151,6 +152,15 @@ class _FakeStorage extends StorageService {
   Future<void> saveDiscoveryMode(bool enabled) async {
     discoveryMode = enabled;
   }
+
+  @override
+  Future<double> readVoicePlaybackSpeed({
+    double fallback = StorageService.defaultVoicePlaybackSpeed,
+  }) async =>
+      fallback;
+
+  @override
+  Future<void> saveVoicePlaybackSpeed(double speed) async {}
 
   @override
   Future<void> rememberLikedReel(int reelId) async {}
@@ -396,12 +406,12 @@ void main() {
     expect(find.text('Acts'), findsOneWidget);
   });
 
-  testWidgets('shows outlined explore icon when discovery mode is off',
+  testWidgets('shows shuffle icon when discovery mode is off',
       (tester) async {
     await pumpFeed(tester);
 
     expect(find.byKey(const Key('discovery_mode_toggle')), findsOneWidget);
-    expect(find.byIcon(Icons.explore_outlined), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.shuffle_medium), findsOneWidget);
   });
 
   testWidgets('enables discovery mode when top-right toggle is tapped',
@@ -413,7 +423,7 @@ void main() {
     await settle(tester);
 
     expect(controller.discoveryMode, isTrue);
-    expect(find.byIcon(Icons.explore), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.shuffle), findsOneWidget);
     expect(controller.reels.first.id, 2);
   });
 }

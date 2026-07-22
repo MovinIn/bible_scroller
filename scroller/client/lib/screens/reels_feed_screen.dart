@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -349,37 +350,50 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
               SafeArea(
                 child: Align(
                   alignment: Alignment.topRight,
-                  child: IconButton(
-                    key: const Key('discovery_mode_toggle'),
-                    tooltip: controller.discoveryMode
-                        ? 'Discovery mode on'
-                        : 'Discovery mode off',
-                    icon: Icon(
-                      controller.discoveryMode
-                          ? Icons.explore
-                          : Icons.explore_outlined,
-                      color: Colors.white,
-                    ),
-                    onPressed: () async {
-                      final messenger = ScaffoldMessenger.of(context);
-                      final enabling = !controller.discoveryMode;
-                      await controller.setDiscoveryMode(enabling);
-                      if (!mounted) {
-                        return;
-                      }
-                      if (_pageController.hasClients) {
-                        _pageController.jumpToPage(0);
-                      }
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            enabling
-                                ? 'Discovery mode enabled'
-                                : 'Discovery mode disabled',
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4, top: 4),
+                    child: IconButton(
+                      key: const Key('discovery_mode_toggle'),
+                      tooltip: controller.discoveryMode
+                          ? 'Discovery mode on'
+                          : 'Discovery mode off',
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.black.withValues(alpha: 0.35),
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white24),
+                        fixedSize: const Size(48, 48),
+                      ),
+                      icon: Icon(
+                        // CupertinoIcons — MaterialIcons tree-shake can blank new glyphs on web.
+                        controller.discoveryMode
+                            ? CupertinoIcons.shuffle
+                            : CupertinoIcons.shuffle_medium,
+                        size: 26,
+                        shadows: const [
+                          Shadow(color: Colors.black54, blurRadius: 4),
+                        ],
+                      ),
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        final enabling = !controller.discoveryMode;
+                        await controller.setDiscoveryMode(enabling);
+                        if (!mounted) {
+                          return;
+                        }
+                        if (_pageController.hasClients) {
+                          _pageController.jumpToPage(0);
+                        }
+                        messenger.showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              enabling
+                                  ? 'Discovery mode enabled'
+                                  : 'Discovery mode disabled',
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
