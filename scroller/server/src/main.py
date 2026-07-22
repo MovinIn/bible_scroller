@@ -86,7 +86,7 @@ def _register_web_app() -> None:
         if asset_dir.is_dir():
             app.mount(
                 f"/{mount_name}",
-                CachedStaticFiles(directory=asset_dir),
+                CachedStaticFiles(directory=asset_dir, mount_prefix=mount_name),
                 name=f"web-{mount_name}",
             )
 
