@@ -8,6 +8,7 @@ import '../utils/voiceover_presentation.dart';
 import 'auth_gate.dart';
 import 'playback_splash_overlay.dart';
 import 'reel_action_bar.dart';
+import 'voice_speed_sheet.dart';
 import 'word_definition_sheet.dart';
 
 class ReelPage extends StatelessWidget {
@@ -20,6 +21,7 @@ class ReelPage extends StatelessWidget {
     required this.onVoiceTap,
     this.onDefineTap,
     this.onVoiceLongPress,
+    this.onSpeedTap,
     this.onBodyTap,
     this.onBookTap,
     this.playbackSplashController,
@@ -32,6 +34,7 @@ class ReelPage extends StatelessWidget {
   final VoidCallback onVoiceTap;
   final VoidCallback? onDefineTap;
   final VoidCallback? onVoiceLongPress;
+  final VoidCallback? onSpeedTap;
   final VoidCallback? onBodyTap;
   final VoidCallback? onBookTap;
   final PlaybackSplashController? playbackSplashController;
@@ -195,6 +198,7 @@ class ReelPage extends StatelessWidget {
                     translationVersion: controller.translationVersion,
                     isMuted: controller.isMuted,
                     defineModeEnabled: controller.defineModeEnabled,
+                    playbackSpeed: controller.voicePlaybackSpeed,
                     onLike: () async {
                       final ok = await ensureLoggedIn(context);
                       if (!ok || !context.mounted) {
@@ -210,6 +214,22 @@ class ReelPage extends StatelessWidget {
                         },
                     onVoiceTap: onVoiceTap,
                     onVoiceLongPress: onVoiceLongPress,
+                    onSpeedTap: onSpeedTap ??
+                        () {
+                          VoiceSpeedSheet.show(
+                            context,
+                            speed: controller.voicePlaybackSpeed,
+                            onSpeedChanged: (speed) {
+                              controller.setVoicePlaybackSpeed(
+                                speed,
+                                persist: false,
+                              );
+                            },
+                            onSpeedChangeEnd: (speed) {
+                              controller.setVoicePlaybackSpeed(speed);
+                            },
+                          );
+                        },
                   );
                 },
               ),

@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,7 +20,7 @@ void main() {
     likedByMe: true,
   );
 
-  testWidgets('shows define icon below translation icon', (tester) async {
+  testWidgets('shows speed icon below voice icon', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
@@ -42,13 +41,12 @@ void main() {
       ),
     );
 
-    final translate = tester.getCenter(find.byIcon(Icons.translate));
-    final define = tester.getCenter(find.byIcon(CupertinoIcons.book));
-    expect(define.dy, greaterThan(translate.dy));
-    expect(find.text('Define'), findsOneWidget);
+    final voice = tester.getCenter(find.byIcon(Icons.volume_up_outlined));
+    final speed = tester.getCenter(find.byIcon(Icons.speed));
+    expect(speed.dy, greaterThan(voice.dy));
   });
 
-  testWidgets('highlights define icon when define mode is enabled', (tester) async {
+  testWidgets('shows current playback speed as label', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
@@ -56,8 +54,8 @@ void main() {
             reel: reel,
             translationVersion: 'esv',
             isMuted: false,
-            defineModeEnabled: true,
-            playbackSpeed: 1.0,
+            defineModeEnabled: false,
+            playbackSpeed: 1.5,
             onLike: _noop,
             onCommentsTap: _noop,
             onTranslationTap: _noop,
@@ -69,12 +67,10 @@ void main() {
       ),
     );
 
-    final icon = tester.widget<Icon>(find.byIcon(CupertinoIcons.book_solid));
-    expect(icon.color, Colors.amberAccent);
-    expect(find.text('BSB'), findsOneWidget);
+    expect(find.text('1.5x'), findsOneWidget);
   });
 
-  testWidgets('calls onDefineTap when define button is tapped', (tester) async {
+  testWidgets('calls onSpeedTap when speed button is tapped', (tester) async {
     var tapped = false;
     await tester.pumpWidget(
       MaterialApp(
@@ -88,15 +84,15 @@ void main() {
             onLike: _noop,
             onCommentsTap: _noop,
             onTranslationTap: _noop,
-            onDefineTap: () => tapped = true,
+            onDefineTap: _noop,
             onVoiceTap: _noop,
-            onSpeedTap: _noop,
+            onSpeedTap: () => tapped = true,
           ),
         ),
       ),
     );
 
-    await tester.tap(find.byIcon(CupertinoIcons.book));
+    await tester.tap(find.byIcon(Icons.speed));
     await tester.pump();
     expect(tapped, isTrue);
   });

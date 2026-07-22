@@ -14,6 +14,7 @@ abstract class VoiceAudioPlayer {
   Future<void> pause();
   Future<void> stop();
   Future<void> setVolume(double volume);
+  Future<void> setSpeed(double speed);
   Future<void> dispose();
 }
 
@@ -48,6 +49,9 @@ class JustAudioVoicePlayer implements VoiceAudioPlayer {
 
   @override
   Future<void> setVolume(double volume) => _player.setVolume(volume);
+
+  @override
+  Future<void> setSpeed(double speed) => _player.setSpeed(speed);
 
   @override
   Future<void> dispose() => _player.dispose();

@@ -42,6 +42,7 @@ class ReelsController extends ChangeNotifier {
   String translationVersion = 'esv';
   bool autoplayVoice = true;
   bool isMuted = false;
+  double voicePlaybackSpeed = StorageService.defaultVoicePlaybackSpeed;
   bool discoveryMode = false;
   bool defineModeEnabled = false;
   List<BibleVersion> versions = const [];
@@ -111,6 +112,7 @@ class ReelsController extends ChangeNotifier {
       translationVersion = await _storage.readTranslationVersion();
       autoplayVoice = await _storage.readAutoplayVoice();
       isMuted = await _storage.readVoiceMuted();
+      voicePlaybackSpeed = await _storage.readVoicePlaybackSpeed();
       discoveryMode = await _storage.readDiscoveryMode();
     });
     await StartupTiming.track('init.refreshFeed', refreshFeed);
@@ -324,17 +326,34 @@ class ReelsController extends ChangeNotifier {
       return;
     }
     final reel = _reels[index];
+    // Require a real clip/playback — early chunk presentation alone must not
+    // suppress a later playVoiceover when a newer visibility supersedes begin.
     final alreadyPlayingThis = _voiceoverReelId == reel.id &&
-        (voiceoverPresentation == VoiceoverPresentation.playingActiveVerse ||
-            _audioPlayer.playing);
+        (_audioPlayer.playing || _clipVerses.isNotEmpty);
 
     // Do not stop/restart when PageView re-notifies the same reel (kills web autoplay).
     if (!alreadyPlayingThis) {
       await stopVoiceover();
-      notifyListeners();
+      if (!autoplayVoice) {
+        notifyListeners();
+      }
     }
     if (generation != _visibleWorkGeneration) {
+      // Stopped without rebound; push idle so UI does not keep prior chunk text.
+      if (autoplayVoice && !alreadyPlayingThis) {
+        notifyListeners();
+      }
       return;
+    }
+    if (autoplayVoice && !alreadyPlayingThis) {
+      // Show the first verse chunk before audio loads so scroll never flashes
+      // the full section text (pause/resume used to be required to recover).
+      await _beginActiveVersePresentation(reel);
+      if (generation != _visibleWorkGeneration) {
+        await stopVoiceover();
+        notifyListeners();
+        return;
+      }
     }
     await StartupTiming.track('reel.loadMoreIfNeeded', () => loadMoreIfNeeded(index));
     if (generation != _visibleWorkGeneration) {
@@ -383,6 +402,18 @@ class ReelsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setVoicePlaybackSpeed(
+    double speed, {
+    bool persist = true,
+  }) async {
+    voicePlaybackSpeed = StorageService.clampVoicePlaybackSpeed(speed);
+    if (persist) {
+      await _storage.saveVoicePlaybackSpeed(voicePlaybackSpeed);
+    }
+    await _applyAudioSpeed();
+    notifyListeners();
+  }
+
   Future<void> setDefineMode(bool enabled) async {
     defineModeEnabled = enabled;
     notifyListeners();
@@ -409,6 +440,14 @@ class ReelsController extends ChangeNotifier {
   Future<void> _applyAudioVolume() async {
     try {
       await _audioPlayer.setVolume(isMuted ? 0.0 : 1.0);
+    } catch (_) {
+      // Audio player may be unavailable in tests or before first playback.
+    }
+  }
+
+  Future<void> _applyAudioSpeed() async {
+    try {
+      await _audioPlayer.setSpeed(voicePlaybackSpeed);
     } catch (_) {
       // Audio player may be unavailable in tests or before first playback.
     }
@@ -673,8 +712,32 @@ class ReelsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Bind chunk UI to [reel] immediately (before audio URL / play).
+  Future<void> _beginActiveVersePresentation(Reel reel) async {
+    _voiceoverReelId = reel.id;
+    activeVerseNumber = reel.startVerse;
+    voiceoverPresentation = VoiceoverPresentation.playingActiveVerse;
+    await _ensureSingleVerseText(reel, reel.startVerse);
+    notifyListeners();
+  }
+
   Future<void> playVoiceover(Reel reel) async {
-    await stopVoiceover();
+    final alreadyBegunForReel = _voiceoverReelId == reel.id &&
+        voiceoverPresentation == VoiceoverPresentation.playingActiveVerse &&
+        _clipVerses.isEmpty &&
+        !_audioPlayer.playing;
+    if (alreadyBegunForReel) {
+      // Keep chunk presentation; only reset clip bookkeeping before audio bind.
+      _positionSub?.cancel();
+      _positionSub = null;
+      _clipFinishing = false;
+    } else {
+      await stopVoiceover();
+      // Restore chunk presentation before awaiting audio so the UI never flashes
+      // full section text while fetch/setUrl runs.
+      await _beginActiveVersePresentation(reel);
+    }
+
     final audio = await _api.fetchAudio(reel: reel, versionId: translationVersion);
     if (!isPlayableAudioUrl(audio.audioUrl) || audio.verses.isEmpty) {
       voiceoverPresentation = VoiceoverPresentation.sectionIdle;
@@ -685,6 +748,9 @@ class ReelsController extends ChangeNotifier {
 
     final startMs = sectionStartMs(audio.verses);
     if (startMs == null) {
+      voiceoverPresentation = VoiceoverPresentation.sectionIdle;
+      activeVerseNumber = null;
+      notifyListeners();
       throw StateError('Audio unavailable for ${reel.reference}');
     }
 
@@ -702,6 +768,7 @@ class ReelsController extends ChangeNotifier {
     voiceoverPresentation = VoiceoverPresentation.playingActiveVerse;
     _clipFinishing = false;
     await _applyAudioVolume();
+    await _applyAudioSpeed();
     _listenToPosition();
     // Notify before play so verse UI updates even when browsers block autoplay.
     notifyListeners();

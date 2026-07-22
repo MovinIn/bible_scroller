@@ -71,6 +71,9 @@ class _FakeApi extends ApiClient {
   _FakeApi({this.audio}) : super(deviceId: 'test');
 
   BibleAudio? audio;
+  Future<void>? delayAudio;
+  Future<void>? delayVerse;
+  Completer<void>? verseFetchStarted;
   final Map<String, String> verseTexts = {
     '16-17': 'Full section text for 16-17.',
     '16-16': 'For God so loved the world.',
@@ -83,6 +86,10 @@ class _FakeApi extends ApiClient {
     required Reel reel,
     required String versionId,
   }) async {
+    final delay = delayAudio;
+    if (delay != null) {
+      await delay;
+    }
     if (audio != null) {
       return audio!;
     }
@@ -110,6 +117,14 @@ class _FakeApi extends ApiClient {
     int? startVerse,
     int? endVerse,
   }) async {
+    final started = verseFetchStarted;
+    if (started != null && !started.isCompleted) {
+      started.complete();
+    }
+    final delay = delayVerse;
+    if (delay != null) {
+      await delay;
+    }
     final start = startVerse ?? reel.startVerse;
     final end = endVerse ?? reel.endVerse;
     final text = verseTexts['$start-$end'] ?? 'verse $start';
@@ -130,6 +145,7 @@ class _FakePlayer implements VoiceAudioPlayer {
   String? url;
   bool throwOnPlay = false;
   int playCallCount = 0;
+  int stopCallCount = 0;
 
   void emitPosition(Duration value) {
     position = value;
@@ -174,6 +190,7 @@ class _FakePlayer implements VoiceAudioPlayer {
 
   @override
   Future<void> stop() async {
+    stopCallCount += 1;
     _playing = false;
     _state = ProcessingState.idle;
   }
@@ -182,8 +199,33 @@ class _FakePlayer implements VoiceAudioPlayer {
   Future<void> setVolume(double volume) async {}
 
   @override
+  Future<void> setSpeed(double speed) async {}
+
+  @override
   Future<void> dispose() async {
     await _positions.close();
+  }
+}
+
+Future<void> _waitUntil(
+  ReelsController controller,
+  bool Function() predicate,
+) async {
+  if (predicate()) {
+    return;
+  }
+  final done = Completer<void>();
+  void listener() {
+    if (predicate() && !done.isCompleted) {
+      done.complete();
+    }
+  }
+
+  controller.addListener(listener);
+  try {
+    await done.future.timeout(const Duration(seconds: 2));
+  } finally {
+    controller.removeListener(listener);
   }
 }
 
@@ -343,6 +385,136 @@ void main() {
       isNot(contains('Loading')),
     );
     expect(controller.verseTextFor(_reelTwo()), 'verse 18');
+  });
+
+  test('shows first verse chunk while autoplay audio is still loading after scroll',
+      () async {
+    final audioGate = Completer<void>();
+    api.delayAudio = audioGate.future;
+    controller.autoplayVoice = true;
+    controller.debugSeedFeed([reel]);
+
+    final displayed = <String>[];
+    controller.addListener(() {
+      displayed.add(controller.displayVerseTextFor(reel));
+    });
+
+    final visible = controller.onReelVisible(0);
+
+    await _waitUntil(
+      controller,
+      () =>
+          controller.voiceoverPresentation ==
+              VoiceoverPresentation.playingActiveVerse &&
+          controller.activeVerseTextFor(reel) != null,
+    );
+
+    expect(
+      controller.voiceoverPresentation,
+      VoiceoverPresentation.playingActiveVerse,
+    );
+    expect(controller.activeVerseNumber, 16);
+    expect(
+      controller.displayVerseTextFor(reel),
+      'For God so loved the world.',
+    );
+    expect(player.playing, isFalse);
+
+    audioGate.complete();
+    await visible;
+
+    expect(player.playing, isTrue);
+    expect(
+      controller.displayVerseTextFor(reel),
+      'For God so loved the world.',
+    );
+    expect(
+      displayed.where((text) => text == 'Full section text for 16-17.'),
+      isEmpty,
+    );
+  });
+
+  test('shows next reel first verse chunk while its autoplay audio is loading',
+      () async {
+    controller.autoplayVoice = true;
+    controller.debugSeedFeed([reel, _reelTwo()]);
+    await controller.onReelVisible(0);
+    await Future<void>.delayed(Duration.zero);
+
+    final audioGate = Completer<void>();
+    api.delayAudio = audioGate.future;
+    final visible = controller.onReelVisible(1);
+
+    await _waitUntil(
+      controller,
+      () =>
+          controller.isVoiceoverFor(_reelTwo()) &&
+          controller.voiceoverPresentation ==
+              VoiceoverPresentation.playingActiveVerse,
+    );
+
+    expect(controller.isVoiceoverFor(_reelTwo()), isTrue);
+    expect(
+      controller.voiceoverPresentation,
+      VoiceoverPresentation.playingActiveVerse,
+    );
+    expect(
+      controller.displayVerseTextFor(_reelTwo()),
+      'verse 18',
+    );
+
+    audioGate.complete();
+    await visible;
+  });
+
+  test('starts voiceover when same reel becomes visible twice before audio loads',
+      () async {
+    final verseStarted = Completer<void>();
+    final verseGate = Completer<void>();
+    final audioGate = Completer<void>();
+    api.verseFetchStarted = verseStarted;
+    api.delayVerse = verseGate.future;
+    api.delayAudio = audioGate.future;
+    controller.autoplayVoice = true;
+    controller.debugSeedFeed([reel]);
+
+    final first = controller.onReelVisible(0);
+    await verseStarted.future;
+
+    // Supersede while Gen1 is inside _beginActiveVersePresentation.
+    final second = controller.onReelVisible(0);
+
+    verseGate.complete();
+    audioGate.complete();
+    await Future.wait([first, second]);
+
+    expect(player.playing, isTrue);
+    expect(player.playCallCount, greaterThanOrEqualTo(1));
+    expect(
+      controller.displayVerseTextFor(reel),
+      'For God so loved the world.',
+    );
+  });
+
+  test('does not stop voiceover again during playVoiceover after early begin',
+      () async {
+    final audioGate = Completer<void>();
+    api.delayAudio = audioGate.future;
+    controller.autoplayVoice = true;
+    controller.debugSeedFeed([reel]);
+
+    final visible = controller.onReelVisible(0);
+    await _waitUntil(
+      controller,
+      () => controller.activeVerseTextFor(reel) != null,
+    );
+
+    final stopsAfterBegin = player.stopCallCount;
+    audioGate.complete();
+    await visible;
+
+    expect(player.stopCallCount, stopsAfterBegin);
+    expect(player.playing, isTrue);
   });
 }
 

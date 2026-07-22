@@ -81,4 +81,38 @@ void main() {
 
     expect(await storage.readDiscoveryMode(), isTrue);
   });
+
+  test('returns 1.0 for voice playback speed when preference was never saved', () async {
+    final storage = StorageService();
+    await storage.init(hivePath: tempDir.path);
+
+    expect(await storage.readVoicePlaybackSpeed(), 1.0);
+  });
+
+  test('returns saved voice playback speed when preference was previously stored', () async {
+    final storage = StorageService();
+    await storage.init(hivePath: tempDir.path);
+
+    await storage.saveVoicePlaybackSpeed(1.5);
+
+    expect(await storage.readVoicePlaybackSpeed(), 1.5);
+  });
+
+  test('clamps voice playback speed to 0.5 when saving below minimum', () async {
+    final storage = StorageService();
+    await storage.init(hivePath: tempDir.path);
+
+    await storage.saveVoicePlaybackSpeed(0.1);
+
+    expect(await storage.readVoicePlaybackSpeed(), 0.5);
+  });
+
+  test('clamps voice playback speed to 2.0 when saving above maximum', () async {
+    final storage = StorageService();
+    await storage.init(hivePath: tempDir.path);
+
+    await storage.saveVoicePlaybackSpeed(3.0);
+
+    expect(await storage.readVoicePlaybackSpeed(), 2.0);
+  });
 }

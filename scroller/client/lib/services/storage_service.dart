@@ -6,7 +6,11 @@ class StorageService {
   static const _translationKey = 'translation_version';
   static const _autoplayVoiceKey = 'autoplay_voice';
   static const _voiceMutedKey = 'voice_muted';
+  static const _voicePlaybackSpeedKey = 'voice_playback_speed';
   static const _discoveryModeKey = 'discovery_mode';
+  static const minVoicePlaybackSpeed = 0.5;
+  static const maxVoicePlaybackSpeed = 2.0;
+  static const defaultVoicePlaybackSpeed = 1.0;
   static const _likedReelsBox = 'liked_reels';
   static const _verseCacheBox = 'verse_cache';
 
@@ -89,6 +93,35 @@ class StorageService {
   Future<void> saveVoiceMuted(bool muted) async {
     final prefs = await _requirePrefs();
     await prefs.setBool(_voiceMutedKey, muted);
+  }
+
+  Future<double> readVoicePlaybackSpeed({
+    double fallback = defaultVoicePlaybackSpeed,
+  }) async {
+    final prefs = await _requirePrefs();
+    final stored = prefs.getDouble(_voicePlaybackSpeedKey);
+    if (stored == null) {
+      return fallback;
+    }
+    return clampVoicePlaybackSpeed(stored);
+  }
+
+  Future<void> saveVoicePlaybackSpeed(double speed) async {
+    final prefs = await _requirePrefs();
+    await prefs.setDouble(
+      _voicePlaybackSpeedKey,
+      clampVoicePlaybackSpeed(speed),
+    );
+  }
+
+  static double clampVoicePlaybackSpeed(double speed) {
+    if (speed < minVoicePlaybackSpeed) {
+      return minVoicePlaybackSpeed;
+    }
+    if (speed > maxVoicePlaybackSpeed) {
+      return maxVoicePlaybackSpeed;
+    }
+    return speed;
   }
 
   Future<bool> readDiscoveryMode({bool fallback = false}) async {
