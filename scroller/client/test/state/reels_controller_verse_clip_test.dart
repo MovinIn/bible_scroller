@@ -75,6 +75,7 @@ class _FakeApi extends ApiClient {
     '16-17': 'Full section text for 16-17.',
     '16-16': 'For God so loved the world.',
     '17-17': 'For God did not send his Son.',
+    '18-18': 'verse 18',
   };
 
   @override
@@ -82,13 +83,24 @@ class _FakeApi extends ApiClient {
     required Reel reel,
     required String versionId,
   }) async {
-    return audio ??
-        const BibleAudio(
-          reference: 'John 3:16-17',
-          versionId: 'esv',
-          audioUrl: '',
-          verses: [],
-        );
+    if (audio != null) {
+      return audio!;
+    }
+    return BibleAudio(
+      reference: reel.reference,
+      versionId: 'esv',
+      audioUrl: 'https://cdn.example.org/jhn3.mp3',
+      startVerse: reel.startVerse,
+      endVerse: reel.endVerse,
+      verses: [
+        for (var v = reel.startVerse; v <= reel.endVerse; v++)
+          BibleAudioVerseTiming(
+            verse: v,
+            startMs: v * 1000,
+            endMs: (v + 1) * 1000,
+          ),
+      ],
+    );
   }
 
   @override
@@ -116,6 +128,8 @@ class _FakePlayer implements VoiceAudioPlayer {
   Duration position = Duration.zero;
   final List<Duration> seeks = [];
   String? url;
+  bool throwOnPlay = false;
+  int playCallCount = 0;
 
   void emitPosition(Duration value) {
     position = value;
@@ -145,6 +159,10 @@ class _FakePlayer implements VoiceAudioPlayer {
 
   @override
   Future<void> play() async {
+    playCallCount += 1;
+    if (throwOnPlay) {
+      throw StateError('autoplay blocked');
+    }
     _playing = true;
     _state = ProcessingState.ready;
   }
@@ -282,6 +300,49 @@ void main() {
 
     expect(reveals, 1);
     expect(controller.voiceoverPresentation, VoiceoverPresentation.sectionReveal);
+  });
+
+  test('keeps playing when same reel becomes visible again', () async {
+    controller.autoplayVoice = true;
+    controller.debugSeedFeed([reel, _reelTwo()]);
+    await controller.onReelVisible(0);
+    await Future<void>.delayed(Duration.zero);
+    expect(player.playing, isTrue);
+    final playsAfterFirst = player.playCallCount;
+
+    await controller.onReelVisible(0);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(player.playing, isTrue);
+    expect(player.playCallCount, playsAfterFirst);
+    expect(controller.isVoiceoverFor(reel), isTrue);
+  });
+
+  test('notifies and shows verse text when play is blocked after setup', () async {
+    player.throwOnPlay = true;
+    controller.debugSeedFeed([reel]);
+
+    await expectLater(controller.playVoiceover(reel), throwsA(isA<StateError>()));
+
+    expect(controller.verseTextFor(reel), 'Full section text for 16-17.');
+    expect(controller.voiceoverPresentation, VoiceoverPresentation.playingActiveVerse);
+    expect(controller.activeVerseNumber, 16);
+  });
+
+  test('loads next reel verse text when scrolling with autoplay on', () async {
+    controller.autoplayVoice = true;
+    controller.debugSeedFeed([reel, _reelTwo()]);
+    await controller.onReelVisible(0);
+    await Future<void>.delayed(Duration.zero);
+
+    await controller.onReelVisible(1);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(
+      controller.verseTextFor(_reelTwo()),
+      isNot(contains('Loading')),
+    );
+    expect(controller.verseTextFor(_reelTwo()), 'verse 18');
   });
 }
 

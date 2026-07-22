@@ -320,8 +320,19 @@ class ReelsController extends ChangeNotifier {
     if (generation != _visibleWorkGeneration) {
       return;
     }
-    // Always stop prior clip when the visible reel changes (even if autoplay is off).
-    await stopVoiceover();
+    if (index < 0 || index >= _reels.length) {
+      return;
+    }
+    final reel = _reels[index];
+    final alreadyPlayingThis = _voiceoverReelId == reel.id &&
+        (voiceoverPresentation == VoiceoverPresentation.playingActiveVerse ||
+            _audioPlayer.playing);
+
+    // Do not stop/restart when PageView re-notifies the same reel (kills web autoplay).
+    if (!alreadyPlayingThis) {
+      await stopVoiceover();
+      notifyListeners();
+    }
     if (generation != _visibleWorkGeneration) {
       return;
     }
@@ -334,14 +345,10 @@ class ReelsController extends ChangeNotifier {
         writeLastReelCookie(_reels[index].id);
       }
     }
-    if (!autoplayVoice || index >= _reels.length) {
+    if (!autoplayVoice) {
       return;
     }
-    final reel = _reels[index];
-    if (!_verseTextByReelId.containsKey(reel.id)) {
-      await StartupTiming.track('reel.ensureVerseText', () => _ensureVerseText(reel));
-    }
-    if (generation != _visibleWorkGeneration) {
+    if (alreadyPlayingThis) {
       return;
     }
     if (defineModeEnabled) {
@@ -353,7 +360,8 @@ class ReelsController extends ChangeNotifier {
     try {
       await StartupTiming.track('reel.playVoiceover', () => playVoiceover(reel));
     } catch (_) {
-      // Audio may be unavailable without Bible Brain API key.
+      // Audio may be unavailable (browser autoplay block / missing timings).
+      notifyListeners();
     }
   }
 
@@ -695,8 +703,14 @@ class ReelsController extends ChangeNotifier {
     _clipFinishing = false;
     await _applyAudioVolume();
     _listenToPosition();
-    await _audioPlayer.play();
+    // Notify before play so verse UI updates even when browsers block autoplay.
     notifyListeners();
+    try {
+      await _audioPlayer.play();
+    } catch (_) {
+      notifyListeners();
+      rethrow;
+    }
   }
 
   void _listenToPosition() {
