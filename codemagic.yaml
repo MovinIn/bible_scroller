@@ -1,0 +1,71 @@
+workflows:
+  flutter_ios_simulator:
+    name: Flutter iOS Simulator
+    max_build_duration: 60
+    working_directory: scroller/client
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Pre-build
+        script: |
+          flutter pub get
+          flutter build ios --simulator
+      - name: Quick Launch
+        script: |
+          echo "Quick Launch URL available after build in Codemagic UI"
+    artifacts:
+      - build/ios/iphonesimulator/Runner.app
+
+  ios_production:
+    name: iOS Production
+    max_build_duration: 120
+    working_directory: scroller/client
+    environment:
+      groups:
+        - mobile_release
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.biblescroller.bibleScroller
+    scripts:
+      - name: Apply release parameters
+        script: |
+          set -e
+          test -n "$BUILD_NAME" || (echo "BUILD_NAME is required" && exit 1)
+          test -n "$BUILD_NUMBER" || (echo "BUILD_NUMBER is required" && exit 1)
+          test -n "$RELEASE_NOTES" || (echo "RELEASE_NOTES is required" && exit 1)
+          sed -i.bak "s/^version: .*/version: ${BUILD_NAME}+${BUILD_NUMBER}/" pubspec.yaml
+          python3 <<'PY'
+          import json, os
+          notes = os.environ["RELEASE_NOTES"]
+          with open("release_notes.json", "w", encoding="utf-8") as f:
+              json.dump([{"language": "en-US", "text": notes}], f, indent=2)
+              f.write("\n")
+          PY
+      - name: Install dependencies
+        script: flutter pub get
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Set export compliance to None
+        script: |
+          # Answers App Store Connect "Export Compliance" as None (exempt / no non-exempt encryption)
+          PLIST=ios/Runner/Info.plist
+          PLIST_BUDDY=/usr/libexec/PlistBuddy
+          $PLIST_BUDDY -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST" 2>/dev/null \
+            || $PLIST_BUDDY -c "Set :ITSAppUsesNonExemptEncryption false" "$PLIST"
+      - name: Build IPA
+        script: flutter build ipa --release
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        submit_to_app_store: true
+        release_type: MANUAL
