@@ -433,7 +433,7 @@ void main() {
       final speedCircle = tester.getRect(
         find
             .ancestor(
-              of: find.byIcon(Icons.speed),
+              of: find.byIcon(Icons.slow_motion_video),
               matching: find.byType(Container),
             )
             .first,

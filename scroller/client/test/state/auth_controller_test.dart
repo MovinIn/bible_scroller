@@ -192,6 +192,18 @@ void main() {
     expect(controller.pendingVerificationEmail, isNull);
   });
 
+  test('clears_pending_verification_when_returning_to_sign_in', () async {
+    final controller = AuthController(authService: _FakeAuthService())
+      ..pendingVerificationEmail = 'pending@example.com'
+      ..error = 'stale';
+
+    controller.clearPendingVerification();
+
+    expect(controller.pendingVerificationEmail, isNull);
+    expect(controller.error, isNull);
+    expect(controller.isLoggedIn, isFalse);
+  });
+
   test('stores_session_when_login_succeeds', () async {
     final service = _FakeAuthService()
       ..nextToken = 'login-token'

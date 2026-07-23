@@ -34,7 +34,7 @@ class _AuthSheetState extends State<AuthSheet> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _codeController = TextEditingController();
-  bool _createAccount = false;
+  bool _createAccount = true;
 
   @override
   void dispose() {
@@ -138,6 +138,7 @@ class _AuthSheetState extends State<AuthSheet> {
           child: Text(_createAccount ? 'Create account' : 'Sign in'),
         ),
         TextButton(
+          key: const Key('auth_toggle_mode_button'),
           onPressed: () => setState(() => _createAccount = !_createAccount),
           child: Text(_createAccount ? 'Have an account? Sign in' : 'Create account'),
         ),
@@ -150,6 +151,12 @@ class _AuthSheetState extends State<AuthSheet> {
         ),
       ],
     );
+  }
+
+  void _backToSignIn(AuthController auth) {
+    _codeController.clear();
+    auth.clearPendingVerification();
+    setState(() => _createAccount = false);
   }
 
   Widget _buildVerify(AuthController auth) {
@@ -185,6 +192,11 @@ class _AuthSheetState extends State<AuthSheet> {
           key: const Key('auth_resend_button'),
           onPressed: auth.busy ? null : () => auth.resendVerification(),
           child: const Text('Resend code'),
+        ),
+        TextButton(
+          key: const Key('auth_back_to_sign_in_button'),
+          onPressed: auth.busy ? null : () => _backToSignIn(auth),
+          child: const Text('Back to sign in'),
         ),
       ],
     );

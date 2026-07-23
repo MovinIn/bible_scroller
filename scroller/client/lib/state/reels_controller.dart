@@ -20,14 +20,19 @@ class ReelsController extends ChangeNotifier {
     required ApiClient api,
     required StorageService storage,
     VoiceAudioPlayer? audioPlayer,
+    bool? isWeb,
   })  : _api = api,
         _storage = storage,
-        _audioPlayerOverride = audioPlayer;
+        _audioPlayerOverride = audioPlayer,
+        _isWeb = isWeb ?? kIsWeb;
 
   final ApiClient _api;
   final StorageService _storage;
   final VoiceAudioPlayer? _audioPlayerOverride;
   VoiceAudioPlayer? _lazyAudioPlayer;
+  final bool _isWeb;
+  /// After the user dismisses web click-to-start, autoplay-on-visible resumes.
+  bool _webAudioStarted = false;
 
   static const int _prefetchBatchSize = 10;
 
@@ -79,6 +84,10 @@ class ReelsController extends ChangeNotifier {
   Reel? get currentReel => _reels.isEmpty ? null : _reels[_currentIndex];
   bool get canLoadNext => _nextCursor != null;
   bool get canLoadPrevious => _prevCursor != null;
+
+  /// Web-only: wait for an explicit click before any audible playback.
+  bool get showClickToStart =>
+      _isWeb && !_webAudioStarted && autoplayVoice;
 
   bool isVoiceoverFor(Reel reel) => _voiceoverReelId == reel.id;
 
@@ -399,6 +408,11 @@ class ReelsController extends ChangeNotifier {
     if (alreadyPlayingThis) {
       return;
     }
+    // Web: stay paused until the user clicks "Click to start" (scroll must not play).
+    if (showClickToStart) {
+      notifyListeners();
+      return;
+    }
     if (defineModeEnabled) {
       await _ensureWordStudy(reel);
     }
@@ -417,6 +431,27 @@ class ReelsController extends ChangeNotifier {
   }
 
   Future<void> onReelVisible(int index) => _scheduleOnReelVisible(index);
+
+  /// Web click-to-start: dismiss the splash and begin audio for the current reel.
+  Future<void> startFromClickToStart() async {
+    if (!_isWeb || _webAudioStarted) {
+      return;
+    }
+    _webAudioStarted = true;
+    notifyListeners();
+    if (!autoplayVoice) {
+      return;
+    }
+    final reel = currentReel;
+    if (reel == null) {
+      return;
+    }
+    try {
+      await playVoiceover(reel);
+    } catch (_) {
+      notifyListeners();
+    }
+  }
 
   Future<void> setAutoplayVoice(bool enabled) async {
     autoplayVoice = enabled;
@@ -1095,6 +1130,9 @@ class ReelsController extends ChangeNotifier {
 
   /// Peek intended tap action without mutating playback (for optimistic UI).
   VoiceoverTapAction peekVoiceoverTapAction(Reel reel) {
+    if (showClickToStart) {
+      return VoiceoverTapAction.start;
+    }
     final clipDone = voiceoverPresentation == VoiceoverPresentation.sectionReveal &&
         _voiceoverReelId == reel.id;
     return resolveVoiceoverTapAction(
@@ -1107,6 +1145,11 @@ class ReelsController extends ChangeNotifier {
 
   /// Tap-to-toggle: pause / resume / replay finished audio / start if needed.
   Future<VoiceoverTapAction> toggleVoiceoverPlayback(Reel reel) async {
+    if (showClickToStart) {
+      await startFromClickToStart();
+      return VoiceoverTapAction.start;
+    }
+
     final action = peekVoiceoverTapAction(reel);
 
     switch (action) {

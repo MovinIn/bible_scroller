@@ -22,7 +22,7 @@ void main() {
   );
 
   testWidgets(
-    'uses Material Icons.speed with MaterialIcons font for speed action',
+    'uses Material slow_motion_video icon with MaterialIcons font for speed action',
     (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
@@ -44,11 +44,12 @@ void main() {
         ),
       );
 
-      final icon = tester.widget<Icon>(find.byIcon(Icons.speed));
-      expect(icon.icon, Icons.speed);
+      final icon = tester.widget<Icon>(find.byIcon(Icons.slow_motion_video));
+      expect(icon.icon, Icons.slow_motion_video);
       expect(icon.icon?.fontFamily, 'MaterialIcons');
       expect(icon.icon?.fontPackage, isNull);
       expect(find.byIcon(CupertinoIcons.speedometer), findsNothing);
+      expect(find.byIcon(Icons.speed), findsNothing);
     },
   );
 
@@ -74,7 +75,7 @@ void main() {
     );
 
     final voice = tester.getCenter(find.byIcon(Icons.volume_up_outlined));
-    final speed = tester.getCenter(find.byIcon(Icons.speed));
+    final speed = tester.getCenter(find.byIcon(Icons.slow_motion_video));
     expect(speed.dy, greaterThan(voice.dy));
   });
 
@@ -124,7 +125,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byIcon(Icons.speed));
+    await tester.tap(find.byIcon(Icons.slow_motion_video));
     await tester.pump();
     expect(tapped, isTrue);
   });

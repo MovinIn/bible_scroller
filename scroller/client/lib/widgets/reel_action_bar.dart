@@ -73,8 +73,8 @@ class ReelActionBar extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _ActionButton(
-          // MaterialIcons — CupertinoIcons tree-shake subsets can fail to paint on Flutter web.
-          icon: Icons.speed,
+          // MaterialIcons — prefer a bold glyph; Icons.speed is a thin gauge that reads blank at 26px.
+          icon: Icons.slow_motion_video,
           label: formatVoicePlaybackSpeed(playbackSpeed),
           onTap: onSpeedTap,
         ),

@@ -110,7 +110,7 @@ class _StubGoogle implements GoogleSignInGateway {
 }
 
 void main() {
-  testWidgets('shows_email_and_google_controls_when_sheet_opens', (tester) async {
+  testWidgets('shows_create_account_title_when_sheet_opens', (tester) async {
     final controller = AuthController(authService: _SheetFakeAuthService());
 
     await tester.pumpWidget(
@@ -122,8 +122,29 @@ void main() {
       ),
     );
 
+    expect(find.text('Create account'), findsWidgets);
+    expect(find.text('Have an account? Sign in'), findsOneWidget);
     expect(find.byKey(const Key('auth_email_field')), findsOneWidget);
     expect(find.byKey(const Key('auth_google_button')), findsOneWidget);
+  });
+
+  testWidgets('shows_sign_in_title_when_user_taps_have_an_account', (tester) async {
+    final controller = AuthController(authService: _SheetFakeAuthService());
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: controller,
+        child: const MaterialApp(
+          home: Scaffold(body: AuthSheet()),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Have an account? Sign in'));
+    await tester.pump();
+
+    expect(find.text('Sign in'), findsWidgets);
+    expect(find.text('Create account'), findsOneWidget);
   });
 
   testWidgets('shows_six_digit_code_field_when_register_requires_verification', (tester) async {
@@ -138,9 +159,6 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Create account'));
-    await tester.pump();
-
     await tester.enterText(find.byKey(const Key('auth_email_field')), 'new@example.com');
     await tester.enterText(find.byKey(const Key('auth_password_field')), 'password123');
     await tester.tap(find.byKey(const Key('auth_submit_button')));
@@ -149,26 +167,53 @@ void main() {
     expect(find.byKey(const Key('auth_code_field')), findsOneWidget);
     expect(find.byKey(const Key('auth_verify_button')), findsOneWidget);
     expect(find.byKey(const Key('auth_resend_button')), findsOneWidget);
+    expect(find.byKey(const Key('auth_back_to_sign_in_button')), findsOneWidget);
     expect(find.textContaining('Check your email'), findsOneWidget);
   });
 
-  testWidgets('invokes_pending_action_when_verification_succeeds', (tester) async {
+  testWidgets('returns_to_sign_in_when_back_to_sign_in_is_tapped', (tester) async {
     final controller = AuthController(authService: _SheetFakeAuthService());
-    var calls = 0;
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: controller,
+        child: const MaterialApp(
+          home: Scaffold(body: AuthSheet()),
+        ),
+      ),
+    );
+
+    await tester.enterText(find.byKey(const Key('auth_email_field')), 'new@example.com');
+    await tester.enterText(find.byKey(const Key('auth_password_field')), 'password123');
+    await tester.tap(find.byKey(const Key('auth_submit_button')));
+    await tester.pumpAndSettle();
+
+    expect(controller.pendingVerificationEmail, 'new@example.com');
+
+    await tester.tap(find.byKey(const Key('auth_back_to_sign_in_button')));
+    await tester.pumpAndSettle();
+
+    expect(controller.pendingVerificationEmail, isNull);
+    expect(find.byKey(const Key('auth_code_field')), findsNothing);
+    expect(find.text('Sign in'), findsWidgets);
+    expect(find.byKey(const Key('auth_email_field')), findsOneWidget);
+  });
+
+  testWidgets('signs_user_in_automatically_when_verification_code_is_correct', (tester) async {
+    final controller = AuthController(authService: _SheetFakeAuthService());
+    var successCalls = 0;
 
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
         value: controller,
         child: MaterialApp(
           home: Scaffold(
-            body: AuthSheet(onSuccess: () => calls += 1),
+            body: AuthSheet(onSuccess: () => successCalls += 1),
           ),
         ),
       ),
     );
 
-    await tester.tap(find.text('Create account'));
-    await tester.pump();
     await tester.enterText(find.byKey(const Key('auth_email_field')), 'new@example.com');
     await tester.enterText(find.byKey(const Key('auth_password_field')), 'password123');
     await tester.tap(find.byKey(const Key('auth_submit_button')));
@@ -178,7 +223,10 @@ void main() {
     await tester.tap(find.byKey(const Key('auth_verify_button')));
     await tester.pumpAndSettle();
 
-    expect(calls, 1);
     expect(controller.isLoggedIn, isTrue);
+    expect(controller.accessToken, 'tok');
+    expect(controller.currentUser?.email, 'new@example.com');
+    expect(controller.pendingVerificationEmail, isNull);
+    expect(successCalls, 1);
   });
 }

@@ -152,6 +152,12 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearPendingVerification() {
+    pendingVerificationEmail = null;
+    error = null;
+    notifyListeners();
+  }
+
   void _applySession(AuthSession session) {
     currentUser = session.user;
     accessToken = session.accessToken;

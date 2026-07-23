@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../state/reels_controller.dart';
+import '../utils/app_snack_bar.dart';
 import '../utils/page_wheel_navigator.dart';
 import '../utils/playback_splash_icon.dart';
 import '../widgets/book_picker_sheet.dart';
@@ -227,9 +228,7 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
       return;
     }
     if (index == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open that section')),
-      );
+      AppSnackBar.show(context, 'Could not open that section');
       return;
     }
     if (_pageController.hasClients) {
@@ -331,14 +330,11 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                           await controller.setAutoplayVoice(
                             !controller.autoplayVoice,
                           );
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                controller.autoplayVoice
-                                    ? 'Autoplay voice enabled'
-                                    : 'Autoplay voice disabled',
-                              ),
-                            ),
+                          AppSnackBar.showWith(
+                            messenger,
+                            controller.autoplayVoice
+                                ? 'Autoplay voice enabled'
+                                : 'Autoplay voice disabled',
                           );
                         },
                       );
@@ -375,14 +371,11 @@ class _ReelsFeedScreenState extends State<ReelsFeedScreen> {
                             if (_pageController.hasClients) {
                               _pageController.jumpToPage(0);
                             }
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  enabling
-                                      ? 'Discovery mode enabled'
-                                      : 'Discovery mode disabled',
-                                ),
-                              ),
+                            AppSnackBar.showWith(
+                              messenger,
+                              enabling
+                                  ? 'Discovery mode enabled'
+                                  : 'Discovery mode disabled',
                             );
                           },
                           borderRadius: BorderRadius.circular(999),
