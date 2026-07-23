@@ -406,13 +406,42 @@ void main() {
     expect(find.text('Acts'), findsOneWidget);
   });
 
-  testWidgets('shows shuffle icon when discovery mode is off',
-      (tester) async {
-    await pumpFeed(tester);
+  testWidgets(
+    'uses Material shuffle icon with MaterialIcons font when discovery is off',
+    (tester) async {
+      await pumpFeed(tester);
 
-    expect(find.byKey(const Key('discovery_mode_toggle')), findsOneWidget);
-    expect(find.byIcon(CupertinoIcons.shuffle_medium), findsOneWidget);
-  });
+      expect(find.byKey(const Key('discovery_mode_toggle')), findsOneWidget);
+      final icon = tester.widget<Icon>(find.byIcon(Icons.shuffle));
+      expect(icon.icon, Icons.shuffle);
+      expect(icon.icon?.fontFamily, 'MaterialIcons');
+      expect(icon.icon?.fontPackage, isNull);
+      expect(find.byIcon(CupertinoIcons.shuffle_medium), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'aligns discovery toggle horizontally with reel action bar icons',
+    (tester) async {
+      await pumpFeed(tester);
+
+      final discovery = tester.getRect(
+        find.byKey(const Key('discovery_mode_toggle')),
+      );
+      // Compare circular hit targets (Containers), not glyph boxes — labels
+      // can widen the action column without shifting the trailing circles.
+      final speedCircle = tester.getRect(
+        find
+            .ancestor(
+              of: find.byIcon(Icons.speed),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      expect(discovery.right, moreOrLessEquals(speedCircle.right, epsilon: 0.5));
+      expect(discovery.center.dx, moreOrLessEquals(speedCircle.center.dx, epsilon: 0.5));
+    },
+  );
 
   testWidgets('enables discovery mode when top-right toggle is tapped',
       (tester) async {
@@ -423,7 +452,7 @@ void main() {
     await settle(tester);
 
     expect(controller.discoveryMode, isTrue);
-    expect(find.byIcon(CupertinoIcons.shuffle), findsOneWidget);
+    expect(find.byIcon(Icons.shuffle_on), findsOneWidget);
     expect(controller.reels.first.id, 2);
   });
 }

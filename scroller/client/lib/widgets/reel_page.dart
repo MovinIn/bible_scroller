@@ -190,7 +190,11 @@ class ReelPage extends StatelessWidget {
           top: 0,
           bottom: 0,
           child: SafeArea(
-            child: Center(
+            // Horizontal inset is Positioned(right: 12) only — keep discovery aligned.
+            left: false,
+            right: false,
+            child: Align(
+              alignment: Alignment.centerRight,
               child: ListenableBuilder(
                 listenable: controller,
                 builder: (context, _) {

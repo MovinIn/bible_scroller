@@ -29,7 +29,7 @@ The VM is `aarch64`. Include the Flutter web bundle so `https://bscroller.navedu
 ```bash
 # From repo root — build web (empty API_BASE_URL = same origin)
 cd scroller/client
-flutter build web --release --dart-define=API_BASE_URL=
+flutter build web --release --no-tree-shake-icons --dart-define=API_BASE_URL=
 # Sync into the Docker build context (PowerShell)
 Remove-Item -Recurse -Force ..\server\static\web -ErrorAction SilentlyContinue
 Copy-Item -Recurse build\web ..\server\static\web
@@ -54,7 +54,7 @@ Measured release build artifacts on this project:
 **Recommendation:** Keep the default CanvasKit build for production until skwasm is validated on target devices. To try skwasm:
 
 ```bash
-flutter build web --release --wasm --dart-define=API_BASE_URL=
+flutter build web --release --wasm --no-tree-shake-icons --dart-define=API_BASE_URL=
 ```
 
 The server now serves immutable long-cache headers for `/canvaskit/**`, `/assets/**`, and `/icons/**` so repeat visits load from disk/CDN cache. Entry files (`index.html`, `flutter_bootstrap.js`, `main.dart.js`) stay `no-cache` for safe deploys.

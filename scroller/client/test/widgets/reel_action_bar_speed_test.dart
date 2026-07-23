@@ -21,31 +21,36 @@ void main() {
     likedByMe: true,
   );
 
-  testWidgets('uses Cupertino speedometer icon for speed action', (tester) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: ReelActionBar(
-            reel: reel,
-            translationVersion: 'esv',
-            isMuted: false,
-            defineModeEnabled: false,
-            playbackSpeed: 1.0,
-            onLike: _noop,
-            onCommentsTap: _noop,
-            onTranslationTap: _noop,
-            onDefineTap: _noop,
-            onVoiceTap: _noop,
-            onSpeedTap: _noop,
+  testWidgets(
+    'uses Material Icons.speed with MaterialIcons font for speed action',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: ReelActionBar(
+              reel: reel,
+              translationVersion: 'esv',
+              isMuted: false,
+              defineModeEnabled: false,
+              playbackSpeed: 1.0,
+              onLike: _noop,
+              onCommentsTap: _noop,
+              onTranslationTap: _noop,
+              onDefineTap: _noop,
+              onVoiceTap: _noop,
+              onSpeedTap: _noop,
+            ),
           ),
         ),
-      ),
-    );
+      );
 
-    final icon = tester.widget<Icon>(find.byIcon(CupertinoIcons.speedometer));
-    expect(icon.icon, CupertinoIcons.speedometer);
-    expect(find.byIcon(Icons.speed), findsNothing);
-  });
+      final icon = tester.widget<Icon>(find.byIcon(Icons.speed));
+      expect(icon.icon, Icons.speed);
+      expect(icon.icon?.fontFamily, 'MaterialIcons');
+      expect(icon.icon?.fontPackage, isNull);
+      expect(find.byIcon(CupertinoIcons.speedometer), findsNothing);
+    },
+  );
 
   testWidgets('shows speed icon below voice icon', (tester) async {
     await tester.pumpWidget(
@@ -69,7 +74,7 @@ void main() {
     );
 
     final voice = tester.getCenter(find.byIcon(Icons.volume_up_outlined));
-    final speed = tester.getCenter(find.byIcon(CupertinoIcons.speedometer));
+    final speed = tester.getCenter(find.byIcon(Icons.speed));
     expect(speed.dy, greaterThan(voice.dy));
   });
 
@@ -119,7 +124,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byIcon(CupertinoIcons.speedometer));
+    await tester.tap(find.byIcon(Icons.speed));
     await tester.pump();
     expect(tapped, isTrue);
   });

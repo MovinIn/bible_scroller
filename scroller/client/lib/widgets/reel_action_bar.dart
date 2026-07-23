@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
@@ -59,10 +58,8 @@ class ReelActionBar extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _ActionButton(
-          // Full CupertinoIcons font — safe when MaterialIcons tree-shake cache is stale.
-          icon: defineModeEnabled
-              ? CupertinoIcons.book_solid
-              : CupertinoIcons.book,
+          // MaterialIcons — CupertinoIcons tree-shake subsets can fail to paint on Flutter web.
+          icon: defineModeEnabled ? Icons.menu_book : Icons.menu_book_outlined,
           label: defineModeEnabled ? 'BSB' : 'Define',
           color: defineModeEnabled ? Colors.amberAccent : Colors.white,
           onTap: onDefineTap,
@@ -76,8 +73,8 @@ class ReelActionBar extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _ActionButton(
-          // Full CupertinoIcons font — safe when MaterialIcons tree-shake cache is stale.
-          icon: CupertinoIcons.speedometer,
+          // MaterialIcons — CupertinoIcons tree-shake subsets can fail to paint on Flutter web.
+          icon: Icons.speed,
           label: formatVoicePlaybackSpeed(playbackSpeed),
           onTap: onSpeedTap,
         ),
@@ -117,31 +114,39 @@ class _ActionButton extends StatelessWidget {
       onTap: onTap,
       onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(999),
-      child: Column(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.35),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white24),
-            ),
-            child: Icon(icon, color: color, size: 26),
-          ),
-          if (label.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+      // Fixed width keeps circles aligned with discovery despite label length.
+      child: SizedBox(
+        width: 48,
+        child: Column(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.35),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white24),
               ),
+              child: Icon(icon, color: color, size: 26),
             ),
+            if (label.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+                softWrap: false,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

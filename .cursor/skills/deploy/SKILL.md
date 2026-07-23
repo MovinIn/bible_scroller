@@ -54,7 +54,7 @@ When the user invokes `/deploy` (or equivalent) **without** clear execute words:
 ## Deploy
 **Target:** bscroller @ 192.9.142.147 (bscroller.navedu.uk)
 **Steps:**
-1. flutter build web --release --dart-define=API_BASE_URL=
+1. flutter build web --release --no-tree-shake-icons --dart-define=API_BASE_URL=
 2. Sync build/web → scroller/server/static/web
 3. docker buildx build --platform linux/arm64 -t movinin/apps:bscroller_backend --push ./scroller/server
 4. ssh opc@192.9.142.147 → docker compose pull/up bscroller → alembic upgrade head

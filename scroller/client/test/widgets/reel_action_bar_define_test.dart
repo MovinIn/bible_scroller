@@ -21,6 +21,37 @@ void main() {
     likedByMe: true,
   );
 
+  testWidgets(
+    'uses Material menu_book icon with MaterialIcons font for define action',
+    (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: ReelActionBar(
+              reel: reel,
+              translationVersion: 'esv',
+              isMuted: false,
+              defineModeEnabled: false,
+              playbackSpeed: 1.0,
+              onLike: _noop,
+              onCommentsTap: _noop,
+              onTranslationTap: _noop,
+              onDefineTap: _noop,
+              onVoiceTap: _noop,
+              onSpeedTap: _noop,
+            ),
+          ),
+        ),
+      );
+
+      final icon = tester.widget<Icon>(find.byIcon(Icons.menu_book_outlined));
+      expect(icon.icon, Icons.menu_book_outlined);
+      expect(icon.icon?.fontFamily, 'MaterialIcons');
+      expect(icon.icon?.fontPackage, isNull);
+      expect(find.byIcon(CupertinoIcons.book), findsNothing);
+    },
+  );
+
   testWidgets('shows define icon below translation icon', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
@@ -43,7 +74,7 @@ void main() {
     );
 
     final translate = tester.getCenter(find.byIcon(Icons.translate));
-    final define = tester.getCenter(find.byIcon(CupertinoIcons.book));
+    final define = tester.getCenter(find.byIcon(Icons.menu_book_outlined));
     expect(define.dy, greaterThan(translate.dy));
     expect(find.text('Define'), findsOneWidget);
   });
@@ -69,7 +100,7 @@ void main() {
       ),
     );
 
-    final icon = tester.widget<Icon>(find.byIcon(CupertinoIcons.book_solid));
+    final icon = tester.widget<Icon>(find.byIcon(Icons.menu_book));
     expect(icon.color, Colors.amberAccent);
     expect(find.text('BSB'), findsOneWidget);
   });
@@ -96,7 +127,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.byIcon(CupertinoIcons.book));
+    await tester.tap(find.byIcon(Icons.menu_book_outlined));
     await tester.pump();
     expect(tapped, isTrue);
   });

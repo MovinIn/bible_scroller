@@ -19,7 +19,7 @@ From repo root (PowerShell):
 
 ```powershell
 cd scroller/client
-flutter build web --release --dart-define=API_BASE_URL=
+flutter build web --release --no-tree-shake-icons --dart-define=API_BASE_URL=
 Remove-Item -Recurse -Force ..\server\static\web -ErrorAction SilentlyContinue
 Copy-Item -Recurse build\web ..\server\static\web
 cd ../..

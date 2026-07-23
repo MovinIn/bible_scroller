@@ -77,7 +77,7 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 
 ```bash
 cd client
-flutter build web --release --dart-define=API_BASE_URL=
+flutter build web --release --no-tree-shake-icons --dart-define=API_BASE_URL=
 # PowerShell: copy build\web -> ..\server\static\web  (see server/static/README.md)
 ```
 
