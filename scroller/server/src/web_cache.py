@@ -30,6 +30,8 @@ _REVALIDATED_ASSET_NAMES = frozenset(
         "AssetManifest.bin",
         "AssetManifest.bin.json",
         "MaterialIcons-Regular.otf",
+        # CupertinoIcons.ttf path is also stable; tree-shake subsets must revalidate.
+        "CupertinoIcons.ttf",
     }
 )
 
