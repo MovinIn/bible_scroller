@@ -160,9 +160,9 @@ The client never holds the key — the server proxies `/bible/*`.
 - **Google Sign-In** and **email/password** via FastAPI JWTs (`POST /auth/google`, `/auth/register`, `/auth/login`)
 - Email/password accounts require a **6-digit verification code** (`POST /auth/verify-email`) before activation
 - Feed/comments are readable without login; likes and comments require a verified JWT
-- Set `JWT_SECRET` (≥32 chars; required in production), `GOOGLE_CLIENT_IDS` (Web + Android + iOS client IDs, comma-separated), and SMTP (`SMTP_HOST`, etc.)
+- Set `JWT_SECRET` (≥32 chars; required in production), `GOOGLE_CLIENT_IDS` (Web + Android + iOS client IDs, comma-separated), and `RESEND_API_KEY` (+ `RESEND_FROM`)
 - Flutter: client IDs in `client/lib/config/google_oauth_config.dart` (override Web ID with `--dart-define=GOOGLE_WEB_CLIENT_ID=...` if needed)
-- Local/dev: `ALLOW_CONSOLE_MAILER=true` logs codes to the console; production must use SMTP
+- Local/dev: `ALLOW_CONSOLE_MAILER=true` logs codes to the console; production must use Resend (or SMTP fallback)
 - Auth endpoints rate-limit register/verify/resend (429 when exceeded)
 - Apple Sign-In and password reset remain deferred
 

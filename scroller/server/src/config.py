@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = "noreply@biblescroller.local"
+    resend_api_key: str = ""
+    resend_from: str = "Bible Scroller <noreply@bscroller.navedu.uk>"
     allow_console_mailer: bool = True
 
     # Rate limits (per key per window)
@@ -64,9 +66,10 @@ def validate_runtime_settings() -> None:
     if settings.jwt_secret == _DEFAULT_JWT_SECRET:
         if settings.is_production:
             raise RuntimeError("JWT_SECRET must be set to a strong secret in production")
-    if settings.is_production and not settings.smtp_host.strip() and not settings.allow_console_mailer:
-        raise RuntimeError("SMTP_HOST must be configured in production")
-    if settings.is_production and settings.allow_console_mailer and not settings.smtp_host.strip():
+    has_email_transport = bool(settings.resend_api_key.strip() or settings.smtp_host.strip())
+    if settings.is_production and not has_email_transport and not settings.allow_console_mailer:
+        raise RuntimeError("RESEND_API_KEY or SMTP_HOST must be configured in production")
+    if settings.is_production and settings.allow_console_mailer and not has_email_transport:
         raise RuntimeError(
-            "ALLOW_CONSOLE_MAILER cannot be used in production; configure SMTP_HOST"
+            "ALLOW_CONSOLE_MAILER cannot be used in production; configure RESEND_API_KEY or SMTP_HOST"
         )

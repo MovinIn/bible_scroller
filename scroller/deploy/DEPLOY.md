@@ -177,7 +177,7 @@ GOOGLE_CLIENT_IDS=315895045315-54809ltm3mnp79qurdl7512c55mvbveo.apps.googleuserc
 JWT_SECRET=your-32-plus-char-secret
 ```
 
-Ensure `~/docker-compose.yml` passes `GOOGLE_CLIENT_IDS` and `JWT_SECRET` into the `bscroller` service (see `docker-compose.snippet.yml`). Do **not** set `ENVIRONMENT=production` until `SMTP_HOST` is configured — the API refuses to start otherwise.
+Ensure `~/docker-compose.yml` passes `GOOGLE_CLIENT_IDS`, `JWT_SECRET`, and `RESEND_API_KEY` into the `bscroller` service (see `docker-compose.snippet.yml`). Do **not** set `ENVIRONMENT=production` until `RESEND_API_KEY` (or `SMTP_HOST`) is configured — the API refuses to start otherwise.
 
 Run migrations after first deploy:
 
